@@ -57,6 +57,13 @@ export default function QuizScreen() {
     setGenerating(true);
     try {
       const questions = await generateQuiz(t, count);
+      if (!questions.length) {
+        Alert.alert(
+          "Couldn't generate questions",
+          "Please try a different topic or try again.",
+        );
+        return;
+      }
       const q = addQuiz({
         topic: t,
         source: "topic",
@@ -70,6 +77,11 @@ export default function QuizScreen() {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       setTopic("");
       router.push({ pathname: "/quiz-session", params: { id: q.id } } as never);
+    } catch (err) {
+      Alert.alert(
+        "Quiz generation failed",
+        "The AI service didn't respond. Please check your connection and try again.",
+      );
     } finally {
       setGenerating(false);
     }

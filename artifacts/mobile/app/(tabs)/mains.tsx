@@ -50,6 +50,8 @@ export default function MainsScreen() {
   const [paper, setPaper] = useState<MainsEvaluation["paper"]>("GS-2");
   const [wordCount, setWordCount] = useState("");
   const [imageUri, setImageUri] = useState<string | null>(null);
+  const [imageBase64, setImageBase64] = useState<string | null>(null);
+  const [imageMime, setImageMime] = useState<string>("image/jpeg");
   const [evaluating, setEvaluating] = useState(false);
 
   const reset = () => {
@@ -57,6 +59,8 @@ export default function MainsScreen() {
     setPaper("GS-2");
     setWordCount("");
     setImageUri(null);
+    setImageBase64(null);
+    setImageMime("image/jpeg");
   };
 
   const captureFromCamera = async () => {
@@ -73,22 +77,30 @@ export default function MainsScreen() {
       return;
     }
     const result = await ImagePicker.launchCameraAsync({
-      quality: 0.7,
+      quality: 0.6,
       allowsEditing: false,
+      base64: true,
     });
     if (!result.canceled && result.assets[0]) {
-      setImageUri(result.assets[0].uri);
+      const a = result.assets[0];
+      setImageUri(a.uri);
+      setImageBase64(a.base64 ?? null);
+      setImageMime(a.mimeType ?? "image/jpeg");
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     }
   };
 
   const pickFromLibrary = async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
-      quality: 0.7,
+      quality: 0.6,
       mediaTypes: "images",
+      base64: true,
     });
     if (!result.canceled && result.assets[0]) {
-      setImageUri(result.assets[0].uri);
+      const a = result.assets[0];
+      setImageUri(a.uri);
+      setImageBase64(a.base64 ?? null);
+      setImageMime(a.mimeType ?? "image/jpeg");
     }
   };
 
@@ -97,13 +109,21 @@ export default function MainsScreen() {
       Alert.alert("Question required", "Type the question prompt.");
       return;
     }
+    if (!imageBase64) {
+      Alert.alert(
+        "Photo required",
+        "Capture or upload a photo of your handwritten answer so the AI can grade it.",
+      );
+      return;
+    }
     const wc = Number(wordCount) || (paper === "Essay" ? 950 : 240);
     setEvaluating(true);
     try {
       const result = await evaluateMains({
         question: question.trim(),
         paper,
-        wordCount: wc,
+        imageBase64,
+        mimeType: imageMime,
       });
       const e = addEvaluation({
         question: question.trim(),
@@ -121,6 +141,11 @@ export default function MainsScreen() {
       reset();
       setComposerOpen(false);
       router.push(`/mains-result/${e.id}` as never);
+    } catch (err) {
+      Alert.alert(
+        "Evaluation failed",
+        "The AI service didn't respond. Please check your connection and try again.",
+      );
     } finally {
       setEvaluating(false);
     }

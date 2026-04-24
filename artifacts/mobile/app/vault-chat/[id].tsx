@@ -55,8 +55,23 @@ export default function VaultChatScreen() {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setThinking(true);
     try {
-      const reply = await ragAnswer(text, doc.subject);
+      const history = (messages ?? []).slice(-8).map((m) => ({
+        role: m.role,
+        content: m.text,
+      }));
+      const reply = await ragAnswer({
+        question: text,
+        documentTitle: doc.title,
+        documentNotes: `Subject: ${doc.subject}. Pages: ${doc.pages}.`,
+        history,
+      });
       addChatMessage({ documentId: doc.id, role: "assistant", text: reply });
+    } catch (e) {
+      addChatMessage({
+        documentId: doc.id,
+        role: "assistant",
+        text: "Sorry — I couldn't reach the AI service. Please check your connection and try again.",
+      });
     } finally {
       setThinking(false);
     }
