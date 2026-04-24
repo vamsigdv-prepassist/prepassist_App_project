@@ -1,8 +1,11 @@
 import { Feather } from "@expo/vector-icons";
+import * as DocumentPicker from "expo-document-picker";
+import * as FileSystem from "expo-file-system/legacy";
 import * as Haptics from "expo-haptics";
 import { useRouter } from "expo-router";
 import React, { useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
   FlatList,
   Modal,
@@ -25,6 +28,7 @@ import {
 } from "@/components/ui";
 import { SUBJECT_PALETTE, useApp, type VaultDocument } from "@/contexts/AppContext";
 import { useColors } from "@/hooks/useColors";
+import { extractPdfText } from "@/lib/ai";
 
 const SUBJECT_OPTIONS = [
   "Polity",
@@ -37,6 +41,12 @@ const SUBJECT_OPTIONS = [
   "Other",
 ];
 
+type PickedFile = {
+  name: string;
+  base64: string;
+  size: number;
+};
+
 export default function VaultScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -47,27 +57,96 @@ export default function VaultScreen() {
   const [modalOpen, setModalOpen] = useState(false);
   const [title, setTitle] = useState("");
   const [subject, setSubject] = useState(SUBJECT_OPTIONS[0]!);
-  const [pages, setPages] = useState("");
+  const [picked, setPicked] = useState<PickedFile | null>(null);
+  const [indexing, setIndexing] = useState(false);
 
-  const handleAdd = () => {
+  const resetForm = () => {
+    setTitle("");
+    setSubject(SUBJECT_OPTIONS[0]!);
+    setPicked(null);
+    setIndexing(false);
+  };
+
+  const closeModal = () => {
+    if (indexing) return;
+    setModalOpen(false);
+    resetForm();
+  };
+
+  const pickPdf = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: "application/pdf",
+        multiple: false,
+        copyToCacheDirectory: true,
+      });
+      if (result.canceled || !result.assets?.[0]) return;
+      const asset = result.assets[0];
+
+      let base64 = "";
+      if (Platform.OS === "web") {
+        const res = await fetch(asset.uri);
+        const blob = await res.blob();
+        base64 = await blobToBase64(blob);
+      } else {
+        base64 = await FileSystem.readAsStringAsync(asset.uri, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+      }
+
+      setPicked({
+        name: asset.name ?? "document.pdf",
+        base64,
+        size: asset.size ?? 0,
+      });
+      if (!title.trim()) {
+        const cleanName = (asset.name ?? "Document").replace(/\.pdf$/i, "");
+        setTitle(cleanName);
+      }
+      if (Platform.OS !== "web")
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } catch (e) {
+      Alert.alert("Couldn't open file", "Please try a different PDF.");
+    }
+  };
+
+  const handleAdd = async () => {
     if (!title.trim()) {
       Alert.alert("Title required", "Please enter a document title.");
       return;
     }
-    const pageCount = Number(pages) || Math.floor(Math.random() * 300) + 50;
-    const colorIdx = Math.floor(Math.random() * SUBJECT_PALETTE.length);
-    addDocument({
-      title: title.trim(),
-      subject,
-      pages: pageCount,
-      color: SUBJECT_PALETTE[colorIdx]!,
-    });
-    if (Platform.OS !== "web")
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    setTitle("");
-    setPages("");
-    setSubject(SUBJECT_OPTIONS[0]!);
-    setModalOpen(false);
+    if (!picked) {
+      Alert.alert(
+        "PDF required",
+        "Tap 'Choose PDF' to upload a syllabus or notes file.",
+      );
+      return;
+    }
+    setIndexing(true);
+    try {
+      const { pages, text, truncated } = await extractPdfText(picked.base64);
+      const colorIdx = Math.floor(Math.random() * SUBJECT_PALETTE.length);
+      addDocument({
+        title: title.trim(),
+        subject,
+        pages: pages || 0,
+        color: SUBJECT_PALETTE[colorIdx]!,
+        extractedText: text,
+        sourceFile: picked.name,
+        truncated,
+      });
+      if (Platform.OS !== "web")
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setModalOpen(false);
+      resetForm();
+    } catch (e) {
+      Alert.alert(
+        "Indexing failed",
+        "We couldn't read text from that PDF. It may be a scanned image — try a text-based PDF.",
+      );
+    } finally {
+      setIndexing(false);
+    }
   };
 
   const handleDelete = (doc: VaultDocument) => {
@@ -94,7 +173,7 @@ export default function VaultScreen() {
       >
         <ScreenHeader
           title="Vault"
-          subtitle="RAG-indexed documents you can speak to"
+          subtitle="RAG-indexed PDFs you can speak to"
           right={
             <Pressable
               onPress={() => setModalOpen(true)}
@@ -193,6 +272,7 @@ export default function VaultScreen() {
                       gap: 10,
                       marginTop: 4,
                       alignItems: "center",
+                      flexWrap: "wrap",
                     }}
                   >
                     <Text
@@ -213,6 +293,30 @@ export default function VaultScreen() {
                     >
                       · {item.pages} pages
                     </Text>
+                    {item.extractedText ? (
+                      <View
+                        style={{
+                          flexDirection: "row",
+                          alignItems: "center",
+                          gap: 3,
+                        }}
+                      >
+                        <Feather
+                          name="zap"
+                          size={11}
+                          color={colors.primary}
+                        />
+                        <Text
+                          style={{
+                            color: colors.primary,
+                            fontFamily: "Inter_600SemiBold",
+                            fontSize: 11,
+                          }}
+                        >
+                          Indexed
+                        </Text>
+                      </View>
+                    ) : null}
                   </View>
                 </View>
                 <Feather
@@ -230,12 +334,9 @@ export default function VaultScreen() {
         visible={modalOpen}
         transparent
         animationType="fade"
-        onRequestClose={() => setModalOpen(false)}
+        onRequestClose={closeModal}
       >
-        <Pressable
-          style={styles.modalBackdrop}
-          onPress={() => setModalOpen(false)}
-        >
+        <Pressable style={styles.modalBackdrop} onPress={closeModal}>
           <Pressable
             style={[
               styles.modalCard,
@@ -262,9 +363,69 @@ export default function VaultScreen() {
                   marginTop: 4,
                 }}
               >
-                We'll index it into your vector vault.
+                We'll extract the text and index it into your vault.
               </Text>
             </View>
+
+            <Text style={[styles.label, { color: colors.mutedForeground }]}>
+              PDF FILE
+            </Text>
+            <Pressable
+              onPress={indexing ? undefined : pickPdf}
+              style={({ pressed }) => [
+                styles.fileBox,
+                {
+                  borderColor: picked ? colors.primary : colors.border,
+                  backgroundColor: picked
+                    ? colors.primary + "0F"
+                    : colors.background,
+                  opacity: pressed ? 0.8 : 1,
+                },
+              ]}
+            >
+              <View
+                style={{
+                  width: 40,
+                  height: 40,
+                  borderRadius: 12,
+                  backgroundColor: picked
+                    ? colors.primary + "20"
+                    : colors.secondary,
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <Feather
+                  name={picked ? "file-text" : "upload-cloud"}
+                  size={20}
+                  color={picked ? colors.primary : colors.mutedForeground}
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text
+                  numberOfLines={1}
+                  style={{
+                    color: colors.foreground,
+                    fontFamily: "Inter_600SemiBold",
+                    fontSize: 14,
+                  }}
+                >
+                  {picked ? picked.name : "Choose PDF"}
+                </Text>
+                <Text
+                  style={{
+                    color: colors.mutedForeground,
+                    fontFamily: "Inter_400Regular",
+                    fontSize: 12,
+                    marginTop: 2,
+                  }}
+                >
+                  {picked
+                    ? `${formatSize(picked.size)} · tap to replace`
+                    : "PDF up to ~15 MB"}
+                </Text>
+              </View>
+            </Pressable>
 
             <Text style={[styles.label, { color: colors.mutedForeground }]}>
               TITLE
@@ -272,6 +433,7 @@ export default function VaultScreen() {
             <TextInput
               value={title}
               onChangeText={setTitle}
+              editable={!indexing}
               placeholder="e.g., Indian Polity — Laxmikanth"
               placeholderTextColor={colors.mutedForeground}
               style={[
@@ -300,7 +462,7 @@ export default function VaultScreen() {
                 return (
                   <Pressable
                     key={s}
-                    onPress={() => setSubject(s)}
+                    onPress={() => !indexing && setSubject(s)}
                     style={{
                       paddingHorizontal: 12,
                       paddingVertical: 7,
@@ -324,38 +486,44 @@ export default function VaultScreen() {
               })}
             </View>
 
-            <Text style={[styles.label, { color: colors.mutedForeground }]}>
-              PAGES (OPTIONAL)
-            </Text>
-            <TextInput
-              value={pages}
-              onChangeText={setPages}
-              placeholder="Auto"
-              placeholderTextColor={colors.mutedForeground}
-              keyboardType="number-pad"
-              style={[
-                styles.input,
-                {
-                  borderColor: colors.border,
-                  backgroundColor: colors.background,
-                  color: colors.foreground,
-                },
-              ]}
-            />
-
-            <View style={{ flexDirection: "row", gap: 10, marginTop: 8 }}>
+            <View style={{ flexDirection: "row", gap: 10, marginTop: 4 }}>
               <Button
                 label="Cancel"
                 variant="ghost"
-                onPress={() => setModalOpen(false)}
+                onPress={closeModal}
                 style={{ flex: 1 }}
               />
               <View style={{ flex: 1 }}>
-                <GradientButton
-                  label="Index document"
-                  icon="upload-cloud"
-                  onPress={handleAdd}
-                />
+                {indexing ? (
+                  <View
+                    style={{
+                      height: 50,
+                      borderRadius: 999,
+                      backgroundColor: colors.primary,
+                      alignItems: "center",
+                      justifyContent: "center",
+                      flexDirection: "row",
+                      gap: 10,
+                    }}
+                  >
+                    <ActivityIndicator color="#fff" />
+                    <Text
+                      style={{
+                        color: "#fff",
+                        fontFamily: "Inter_700Bold",
+                        fontSize: 14,
+                      }}
+                    >
+                      Indexing…
+                    </Text>
+                  </View>
+                ) : (
+                  <GradientButton
+                    label="Index document"
+                    icon="upload-cloud"
+                    onPress={handleAdd}
+                  />
+                )}
               </View>
             </View>
           </Pressable>
@@ -363,6 +531,30 @@ export default function VaultScreen() {
       </Modal>
     </View>
   );
+}
+
+function formatSize(bytes: number) {
+  if (!bytes) return "PDF";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const result = reader.result;
+      if (typeof result === "string") {
+        const idx = result.indexOf("base64,");
+        resolve(idx >= 0 ? result.slice(idx + 7) : result);
+      } else {
+        reject(new Error("FileReader did not return a string"));
+      }
+    };
+    reader.onerror = () => reject(reader.error ?? new Error("FileReader error"));
+    reader.readAsDataURL(blob);
+  });
 }
 
 const styles = StyleSheet.create({
@@ -404,6 +596,16 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     fontFamily: "Inter_500Medium",
     fontSize: 15,
+    marginBottom: 16,
+  },
+  fileBox: {
+    borderWidth: 1.5,
+    borderStyle: "dashed",
+    borderRadius: 16,
+    padding: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
     marginBottom: 16,
   },
 });

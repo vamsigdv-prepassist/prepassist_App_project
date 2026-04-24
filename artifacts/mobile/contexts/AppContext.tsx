@@ -15,6 +15,9 @@ export type VaultDocument = {
   pages: number;
   uploadedAt: number;
   color: string;
+  extractedText?: string;
+  sourceFile?: string;
+  truncated?: boolean;
 };
 
 export type ChatMessage = {

@@ -50,5 +50,10 @@ artifacts/mobile/
 
 ## Notes
 
-- First build: no backend. All AI features are deterministic, on-device generators that produce realistic structured outputs and persist to AsyncStorage. Easy to swap with a real LLM call later by editing `lib/ai.ts`.
+- AI features call the api-server backend (gpt-5.4 via Replit-managed OpenAI integration).
+  - `/api/ai/rag` and `/api/ai/rag/stream` (SSE) — Vault chat, accepts `documentText` injected into system prompt.
+  - `/api/ai/evaluate` — Mains essay vision grading from base64 image.
+  - `/api/ai/quiz` — PDF→quiz generation from topic.
+  - `/api/ai/extract-pdf` — Server-side PDF text extraction (unpdf), returns up to 60k chars.
+- Vault: real PDFs picked via expo-document-picker, base64-encoded on device, sent to `/api/ai/extract-pdf`. Extracted text stored on the `VaultDocument` and passed to RAG calls so chat is grounded in the actual source.
 - Camera capture works in Expo Go on iOS/Android; on web it falls back to file picker.

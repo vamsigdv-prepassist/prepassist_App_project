@@ -1,25 +1,70 @@
 import { Router, type IRouter } from "express";
 import { openai } from "@workspace/integrations-openai-ai-server";
+import { extractText, getDocumentProxy } from "unpdf";
 
 const router: IRouter = Router();
 
 const MODEL = "gpt-5.4";
 
+const MAX_DOC_CHARS = 60_000;
+
+function clampDocText(text: string) {
+  if (text.length <= MAX_DOC_CHARS) return text;
+  const head = text.slice(0, Math.floor(MAX_DOC_CHARS * 0.7));
+  const tail = text.slice(-Math.floor(MAX_DOC_CHARS * 0.3));
+  return `${head}\n\n[…content trimmed for length…]\n\n${tail}`;
+}
+
+router.post("/ai/extract-pdf", async (req, res) => {
+  try {
+    const { pdfBase64 } = req.body ?? {};
+    if (typeof pdfBase64 !== "string" || !pdfBase64) {
+      res.status(400).json({ error: "pdfBase64 is required" });
+      return;
+    }
+    const buf = Buffer.from(pdfBase64, "base64");
+    const bytes = new Uint8Array(buf);
+    const doc = await getDocumentProxy(bytes);
+    const { totalPages, text } = await extractText(doc, { mergePages: true });
+    const cleaned = (Array.isArray(text) ? text.join("\n\n") : text)
+      .replace(/[ \t]+\n/g, "\n")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+    res.json({
+      pages: totalPages ?? 0,
+      text: clampDocText(cleaned),
+      truncated: cleaned.length > MAX_DOC_CHARS,
+      originalLength: cleaned.length,
+    });
+  } catch (err) {
+    req.log?.error({ err }, "extract-pdf failed");
+    res.status(500).json({ error: "extract_failed" });
+  }
+});
+
 function buildRagMessages(body: {
   documentTitle?: string;
   documentNotes?: string;
+  documentText?: string;
   history?: unknown;
   question: string;
 }) {
+  const hasDocText =
+    typeof body.documentText === "string" && body.documentText.trim().length > 0;
+
   const system = [
-    "You are PrepAssist Vault, an expert UPSC tutor that answers ONLY from the document the aspirant uploaded.",
+    "You are PrepAssist Vault, an expert UPSC tutor that answers GROUNDED IN the source document below.",
     `Document title: ${body.documentTitle ?? "Untitled"}`,
     body.documentNotes ? `Aspirant's notes / context: ${body.documentNotes}` : "",
+    hasDocText
+      ? `--- BEGIN DOCUMENT ---\n${clampDocText(body.documentText!.trim())}\n--- END DOCUMENT ---`
+      : "(No document text available — fall back to general UPSC knowledge but flag answers as 'Outside the document'.)",
     "Answering rules:",
+    "- Quote or paraphrase the document where possible. Cite section/topic headings if present.",
     "- Be precise, structured and exam-ready (Mains-style).",
     "- Use short headers and bullet points where useful.",
-    "- If the document does not cover the question, say so and provide a brief general UPSC-level answer flagged as 'Outside the document'.",
-    "- Reply in 120-220 words unless the aspirant asks for more.",
+    "- If the document does NOT cover the question, say so explicitly and provide a brief general UPSC-level answer flagged as 'Outside the document'.",
+    "- Reply in 120-260 words unless the aspirant asks for more.",
   ]
     .filter(Boolean)
     .join("\n");
@@ -50,7 +95,8 @@ function buildRagMessages(body: {
 
 router.post("/ai/rag", async (req, res) => {
   try {
-    const { documentTitle, documentNotes, history, question } = req.body ?? {};
+    const { documentTitle, documentNotes, documentText, history, question } =
+      req.body ?? {};
     if (typeof question !== "string" || !question.trim()) {
       res.status(400).json({ error: "question is required" });
       return;
@@ -59,7 +105,13 @@ router.post("/ai/rag", async (req, res) => {
     const response = await openai.chat.completions.create({
       model: MODEL,
       max_completion_tokens: 1200,
-      messages: buildRagMessages({ documentTitle, documentNotes, history, question }),
+      messages: buildRagMessages({
+        documentTitle,
+        documentNotes,
+        documentText,
+        history,
+        question,
+      }),
     });
 
     const answer = response.choices[0]?.message?.content?.trim() ?? "";
@@ -72,7 +124,8 @@ router.post("/ai/rag", async (req, res) => {
 
 router.post("/ai/rag/stream", async (req, res) => {
   try {
-    const { documentTitle, documentNotes, history, question } = req.body ?? {};
+    const { documentTitle, documentNotes, documentText, history, question } =
+      req.body ?? {};
     if (typeof question !== "string" || !question.trim()) {
       res.status(400).json({ error: "question is required" });
       return;
@@ -87,7 +140,13 @@ router.post("/ai/rag/stream", async (req, res) => {
     const stream = await openai.chat.completions.create({
       model: MODEL,
       max_completion_tokens: 1200,
-      messages: buildRagMessages({ documentTitle, documentNotes, history, question }),
+      messages: buildRagMessages({
+        documentTitle,
+        documentNotes,
+        documentText,
+        history,
+        question,
+      }),
       stream: true,
     });
 

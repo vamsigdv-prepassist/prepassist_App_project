@@ -69,6 +69,7 @@ export default function VaultChatScreen() {
           question: text,
           documentTitle: doc.title,
           documentNotes: `Subject: ${doc.subject}. Pages: ${doc.pages}.`,
+          documentText: doc.extractedText,
           history,
         },
         (_delta, full) => {

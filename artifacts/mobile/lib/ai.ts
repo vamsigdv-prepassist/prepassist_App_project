@@ -27,23 +27,34 @@ async function callApi<T>(path: string, body: unknown): Promise<T> {
 
 export type RagHistoryItem = { role: "user" | "assistant"; content: string };
 
-export async function ragAnswer(params: {
+export type RagParams = {
   question: string;
   documentTitle: string;
   documentNotes?: string;
+  documentText?: string;
   history?: RagHistoryItem[];
-}): Promise<string> {
+};
+
+export async function ragAnswer(params: RagParams): Promise<string> {
   const { answer } = await callApi<{ answer: string }>("/ai/rag", params);
   return answer || "I couldn't generate a response. Please try again.";
 }
 
+export async function extractPdfText(pdfBase64: string): Promise<{
+  pages: number;
+  text: string;
+  truncated: boolean;
+}> {
+  const { pages, text, truncated } = await callApi<{
+    pages: number;
+    text: string;
+    truncated: boolean;
+  }>("/ai/extract-pdf", { pdfBase64 });
+  return { pages, text, truncated };
+}
+
 export async function ragAnswerStream(
-  params: {
-    question: string;
-    documentTitle: string;
-    documentNotes?: string;
-    history?: RagHistoryItem[];
-  },
+  params: RagParams,
   onToken: (delta: string, full: string) => void,
 ): Promise<string> {
   const res = await expoFetch(`${API_BASE}/ai/rag/stream`, {
