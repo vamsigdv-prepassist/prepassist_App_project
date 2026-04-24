@@ -5,6 +5,49 @@ const router: IRouter = Router();
 
 const MODEL = "gpt-5.4";
 
+function buildRagMessages(body: {
+  documentTitle?: string;
+  documentNotes?: string;
+  history?: unknown;
+  question: string;
+}) {
+  const system = [
+    "You are PrepAssist Vault, an expert UPSC tutor that answers ONLY from the document the aspirant uploaded.",
+    `Document title: ${body.documentTitle ?? "Untitled"}`,
+    body.documentNotes ? `Aspirant's notes / context: ${body.documentNotes}` : "",
+    "Answering rules:",
+    "- Be precise, structured and exam-ready (Mains-style).",
+    "- Use short headers and bullet points where useful.",
+    "- If the document does not cover the question, say so and provide a brief general UPSC-level answer flagged as 'Outside the document'.",
+    "- Reply in 120-220 words unless the aspirant asks for more.",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  const messages: Array<{
+    role: "system" | "user" | "assistant";
+    content: string;
+  }> = [{ role: "system", content: system }];
+
+  if (Array.isArray(body.history)) {
+    for (const m of body.history.slice(-10) as {
+      role?: string;
+      content?: string;
+    }[]) {
+      if (
+        m &&
+        (m.role === "user" || m.role === "assistant") &&
+        typeof m.content === "string"
+      ) {
+        messages.push({ role: m.role, content: m.content });
+      }
+    }
+  }
+
+  messages.push({ role: "user", content: body.question });
+  return messages;
+}
+
 router.post("/ai/rag", async (req, res) => {
   try {
     const { documentTitle, documentNotes, history, question } = req.body ?? {};
@@ -13,42 +56,10 @@ router.post("/ai/rag", async (req, res) => {
       return;
     }
 
-    const system = [
-      "You are PrepAssist Vault, an expert UPSC tutor that answers ONLY from the document the aspirant uploaded.",
-      `Document title: ${documentTitle ?? "Untitled"}`,
-      documentNotes ? `Aspirant's notes / context: ${documentNotes}` : "",
-      "Answering rules:",
-      "- Be precise, structured and exam-ready (Mains-style).",
-      "- Use short headers and bullet points where useful.",
-      "- If the document does not cover the question, say so and provide a brief general UPSC-level answer flagged as 'Outside the document'.",
-      "- Reply in 120-220 words unless the aspirant asks for more.",
-    ]
-      .filter(Boolean)
-      .join("\n");
-
-    const messages: Array<{
-      role: "system" | "user" | "assistant";
-      content: string;
-    }> = [{ role: "system", content: system }];
-
-    if (Array.isArray(history)) {
-      for (const m of history.slice(-10)) {
-        if (
-          m &&
-          (m.role === "user" || m.role === "assistant") &&
-          typeof m.content === "string"
-        ) {
-          messages.push({ role: m.role, content: m.content });
-        }
-      }
-    }
-
-    messages.push({ role: "user", content: question });
-
     const response = await openai.chat.completions.create({
       model: MODEL,
       max_completion_tokens: 1200,
-      messages,
+      messages: buildRagMessages({ documentTitle, documentNotes, history, question }),
     });
 
     const answer = response.choices[0]?.message?.content?.trim() ?? "";
@@ -56,6 +67,44 @@ router.post("/ai/rag", async (req, res) => {
   } catch (err) {
     req.log?.error({ err }, "rag failed");
     res.status(500).json({ error: "rag_failed" });
+  }
+});
+
+router.post("/ai/rag/stream", async (req, res) => {
+  try {
+    const { documentTitle, documentNotes, history, question } = req.body ?? {};
+    if (typeof question !== "string" || !question.trim()) {
+      res.status(400).json({ error: "question is required" });
+      return;
+    }
+
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
+    res.flushHeaders?.();
+
+    const stream = await openai.chat.completions.create({
+      model: MODEL,
+      max_completion_tokens: 1200,
+      messages: buildRagMessages({ documentTitle, documentNotes, history, question }),
+      stream: true,
+    });
+
+    for await (const chunk of stream) {
+      const delta = chunk.choices[0]?.delta?.content;
+      if (delta) {
+        res.write(`data: ${JSON.stringify({ content: delta })}\n\n`);
+      }
+    }
+    res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+    res.end();
+  } catch (err) {
+    req.log?.error({ err }, "rag stream failed");
+    try {
+      res.write(`data: ${JSON.stringify({ error: "rag_failed" })}\n\n`);
+      res.end();
+    } catch {}
   }
 });
 

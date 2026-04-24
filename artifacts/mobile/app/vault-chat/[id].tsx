@@ -18,7 +18,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Pill } from "@/components/ui";
 import { useApp } from "@/contexts/AppContext";
 import { useColors } from "@/hooks/useColors";
-import { ragAnswer } from "@/lib/ai";
+import { ragAnswerStream } from "@/lib/ai";
 
 const SUGGESTIONS = [
   "Summarise this in 5 points",
@@ -31,7 +31,7 @@ export default function VaultChatScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { documents, chats, addChatMessage } = useApp();
+  const { documents, chats, addChatMessage, updateChatMessage } = useApp();
   const doc = useMemo(
     () => documents.find((d) => d.id === id),
     [documents, id],
@@ -54,22 +54,29 @@ export default function VaultChatScreen() {
     if (Platform.OS !== "web")
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setThinking(true);
+    const history = (messages ?? []).slice(-8).map((m) => ({
+      role: m.role,
+      content: m.text,
+    }));
+    const placeholder = addChatMessage({
+      documentId: doc.id,
+      role: "assistant",
+      text: "",
+    });
     try {
-      const history = (messages ?? []).slice(-8).map((m) => ({
-        role: m.role,
-        content: m.text,
-      }));
-      const reply = await ragAnswer({
-        question: text,
-        documentTitle: doc.title,
-        documentNotes: `Subject: ${doc.subject}. Pages: ${doc.pages}.`,
-        history,
-      });
-      addChatMessage({ documentId: doc.id, role: "assistant", text: reply });
+      await ragAnswerStream(
+        {
+          question: text,
+          documentTitle: doc.title,
+          documentNotes: `Subject: ${doc.subject}. Pages: ${doc.pages}.`,
+          history,
+        },
+        (_delta, full) => {
+          updateChatMessage(doc.id, placeholder.id, { text: full });
+        },
+      );
     } catch (e) {
-      addChatMessage({
-        documentId: doc.id,
-        role: "assistant",
+      updateChatMessage(doc.id, placeholder.id, {
         text: "Sorry — I couldn't reach the AI service. Please check your connection and try again.",
       });
     } finally {

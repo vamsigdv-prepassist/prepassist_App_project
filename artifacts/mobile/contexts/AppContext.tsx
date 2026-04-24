@@ -81,6 +81,11 @@ type AppState = {
   addChatMessage: (
     msg: Omit<ChatMessage, "id" | "createdAt">,
   ) => ChatMessage;
+  updateChatMessage: (
+    documentId: string,
+    messageId: string,
+    patch: Partial<Pick<ChatMessage, "text">>,
+  ) => void;
 
   evaluations: MainsEvaluation[];
   addEvaluation: (
@@ -263,6 +268,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return message;
   }, []);
 
+  const updateChatMessage = useCallback<AppState["updateChatMessage"]>(
+    (documentId, messageId, patch) => {
+      setChats((prev) => {
+        const list = prev[documentId];
+        if (!list) return prev;
+        return {
+          ...prev,
+          [documentId]: list.map((m) =>
+            m.id === messageId ? { ...m, ...patch } : m,
+          ),
+        };
+      });
+    },
+    [],
+  );
+
   const addEvaluation = useCallback<AppState["addEvaluation"]>((e) => {
     const evaluation: MainsEvaluation = {
       ...e,
@@ -302,6 +323,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       removeDocument,
       chats,
       addChatMessage,
+      updateChatMessage,
       evaluations,
       addEvaluation,
       quizzes,
@@ -321,6 +343,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       removeDocument,
       chats,
       addChatMessage,
+      updateChatMessage,
       evaluations,
       addEvaluation,
       quizzes,

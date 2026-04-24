@@ -1,3 +1,5 @@
+import { fetch as expoFetch } from "expo/fetch";
+
 import type { QuizQuestion } from "@/contexts/AppContext";
 
 const DOMAIN = process.env.EXPO_PUBLIC_DOMAIN ?? "";
@@ -33,6 +35,73 @@ export async function ragAnswer(params: {
 }): Promise<string> {
   const { answer } = await callApi<{ answer: string }>("/ai/rag", params);
   return answer || "I couldn't generate a response. Please try again.";
+}
+
+export async function ragAnswerStream(
+  params: {
+    question: string;
+    documentTitle: string;
+    documentNotes?: string;
+    history?: RagHistoryItem[];
+  },
+  onToken: (delta: string, full: string) => void,
+): Promise<string> {
+  const res = await expoFetch(`${API_BASE}/ai/rag/stream`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "text/event-stream",
+    },
+    body: JSON.stringify(params),
+  });
+  if (!res.ok || !res.body) {
+    throw new Error(`rag stream failed (${res.status})`);
+  }
+
+  const reader = (res.body as ReadableStream<Uint8Array>).getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let full = "";
+
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      let sepIdx: number;
+      while ((sepIdx = buffer.indexOf("\n\n")) !== -1) {
+        const rawEvent = buffer.slice(0, sepIdx);
+        buffer = buffer.slice(sepIdx + 2);
+
+        for (const line of rawEvent.split("\n")) {
+          if (!line.startsWith("data:")) continue;
+          const payload = line.slice(5).trim();
+          if (!payload) continue;
+          try {
+            const parsed = JSON.parse(payload) as {
+              content?: string;
+              done?: boolean;
+              error?: string;
+            };
+            if (parsed.error) throw new Error(parsed.error);
+            if (parsed.content) {
+              full += parsed.content;
+              onToken(parsed.content, full);
+            }
+          } catch (e) {
+            if (e instanceof Error && e.message) throw e;
+          }
+        }
+      }
+    }
+  } finally {
+    try {
+      reader.releaseLock();
+    } catch {}
+  }
+
+  return full || "I couldn't generate a response. Please try again.";
 }
 
 export type MainsScores = {
