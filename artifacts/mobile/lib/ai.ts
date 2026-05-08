@@ -296,10 +296,39 @@ function labelOf(k: keyof MainsScores): string {
   }
 }
 
+export function sampleChunksForQuiz(
+  chunks: string[],
+  maxChars = 7_000,
+): string[] {
+  if (!chunks.length) return [];
+  const N = chunks.length;
+  const k = Math.min(10, N);
+  const sampled: string[] = [];
+  for (let i = 0; i < k; i++) {
+    const idx = Math.round((i / Math.max(k - 1, 1)) * (N - 1));
+    const chunk = chunks[Math.min(idx, N - 1)];
+    if (chunk && !sampled.includes(chunk)) sampled.push(chunk);
+  }
+  const result: string[] = [];
+  let used = 0;
+  for (const chunk of sampled) {
+    if (used + chunk.length > maxChars) break;
+    result.push(chunk);
+    used += chunk.length;
+  }
+  return result;
+}
+
 export async function generateQuiz(
   topic: string,
   count: number,
+  opts?: { documentTitle?: string; documentChunks?: string[] },
 ): Promise<QuizQuestion[]> {
+  const body: Record<string, unknown> = { topic, count };
+  if (opts?.documentTitle && opts.documentChunks?.length) {
+    body.documentTitle = opts.documentTitle;
+    body.documentPassages = sampleChunksForQuiz(opts.documentChunks);
+  }
   const { questions } = await callApi<{
     questions: {
       id?: string;
@@ -308,7 +337,7 @@ export async function generateQuiz(
       correctIndex?: number;
       explanation?: string;
     }[];
-  }>("/ai/quiz", { topic, count });
+  }>("/ai/quiz", body);
 
   return (questions ?? [])
     .filter(

@@ -26,9 +26,13 @@ import {
   Pill,
   ScreenHeader,
 } from "@/components/ui";
-import { SUBJECT_PALETTE, useApp, type VaultDocument } from "@/contexts/AppContext";
+import {
+  SUBJECT_PALETTE,
+  useApp,
+  type VaultDocument,
+} from "@/contexts/AppContext";
 import { useColors } from "@/hooks/useColors";
-import { extractPdfChunks } from "@/lib/ai";
+import { extractPdfChunks, generateQuiz } from "@/lib/ai";
 
 const SUBJECT_OPTIONS = [
   "Polity",
@@ -41,6 +45,8 @@ const SUBJECT_OPTIONS = [
   "Other",
 ];
 
+const QUIZ_COUNTS = [5, 10, 20];
+
 type PickedFile = {
   name: string;
   base64: string;
@@ -52,13 +58,21 @@ export default function VaultScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const isWeb = Platform.OS === "web";
-  const { documents, addDocument, removeDocument } = useApp();
+  const { documents, addDocument, removeDocument, addQuiz } = useApp();
 
+  // Add-document modal state
   const [modalOpen, setModalOpen] = useState(false);
   const [title, setTitle] = useState("");
   const [subject, setSubject] = useState(SUBJECT_OPTIONS[0]!);
   const [picked, setPicked] = useState<PickedFile | null>(null);
   const [indexing, setIndexing] = useState(false);
+
+  // Quiz-from-doc modal state
+  const [quizDoc, setQuizDoc] = useState<VaultDocument | null>(null);
+  const [quizCount, setQuizCount] = useState(10);
+  const [quizGenerating, setQuizGenerating] = useState(false);
+
+  // ── Add-document helpers ───────────────────────────────────────────────────
 
   const resetForm = () => {
     setTitle("");
@@ -105,7 +119,7 @@ export default function VaultScreen() {
       }
       if (Platform.OS !== "web")
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    } catch (e) {
+    } catch {
       Alert.alert("Couldn't open file", "Please try a different PDF.");
     }
   };
@@ -124,9 +138,8 @@ export default function VaultScreen() {
     }
     setIndexing(true);
     try {
-      const { pages, chunks, truncated, chunkCount } = await extractPdfChunks(
-        picked.base64,
-      );
+      const { pages, chunks, truncated, chunkCount } =
+        await extractPdfChunks(picked.base64);
       const colorIdx = Math.floor(Math.random() * SUBJECT_PALETTE.length);
       addDocument({
         title: title.trim(),
@@ -142,7 +155,7 @@ export default function VaultScreen() {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setModalOpen(false);
       resetForm();
-    } catch (e) {
+    } catch {
       Alert.alert(
         "Indexing failed",
         "We couldn't read text from that PDF. It may be a scanned image — try a text-based PDF.",
@@ -167,13 +180,71 @@ export default function VaultScreen() {
     );
   };
 
+  // ── Quiz-from-doc helpers ──────────────────────────────────────────────────
+
+  const openQuizModal = (doc: VaultDocument) => {
+    if (!doc.chunks?.length) {
+      Alert.alert(
+        "Not indexed",
+        "This document doesn't have extracted text yet. Upload a new PDF to enable quiz generation.",
+      );
+      return;
+    }
+    setQuizDoc(doc);
+    setQuizCount(10);
+  };
+
+  const closeQuizModal = () => {
+    if (quizGenerating) return;
+    setQuizDoc(null);
+  };
+
+  const handleGenerateQuiz = async () => {
+    if (!quizDoc || !quizDoc.chunks?.length) return;
+    setQuizGenerating(true);
+    try {
+      const questions = await generateQuiz(quizDoc.title, quizCount, {
+        documentTitle: quizDoc.title,
+        documentChunks: quizDoc.chunks,
+      });
+      if (!questions.length) {
+        Alert.alert(
+          "No questions generated",
+          "The AI couldn't produce questions from this document. Try a different count.",
+        );
+        return;
+      }
+      const quiz = addQuiz({
+        topic: quizDoc.title,
+        source: "pdf",
+        questions,
+        answers: questions.map(() => null),
+        score: 0,
+        durationSec: 0,
+        completed: false,
+      });
+      if (Platform.OS !== "web")
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      setQuizDoc(null);
+      router.push({
+        pathname: "/quiz-session",
+        params: { id: quiz.id },
+      } as never);
+    } catch {
+      Alert.alert(
+        "Quiz generation failed",
+        "The AI service didn't respond. Please check your connection and try again.",
+      );
+    } finally {
+      setQuizGenerating(false);
+    }
+  };
+
+  // ── Render ────────────────────────────────────────────────────────────────
+
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
-      <View
-        style={{
-          paddingTop: insets.top + (isWeb ? 67 : 8),
-        }}
-      >
+      <View style={{ paddingTop: insets.top + (isWeb ? 67 : 8) }}>
         <ScreenHeader
           title="Vault"
           subtitle="RAG-indexed PDFs you can speak to"
@@ -206,13 +277,7 @@ export default function VaultScreen() {
         }}
         ListHeaderComponent={
           documents.length > 0 ? (
-            <View
-              style={{
-                flexDirection: "row",
-                gap: 8,
-                marginBottom: 12,
-              }}
-            >
+            <View style={{ flexDirection: "row", gap: 8, marginBottom: 12 }}>
               <Pill
                 label={`${documents.length} indexed`}
                 icon="database"
@@ -248,7 +313,10 @@ export default function VaultScreen() {
             })}
           >
             <Card>
-              <View style={{ flexDirection: "row", gap: 14, alignItems: "center" }}>
+              <View
+                style={{ flexDirection: "row", gap: 14, alignItems: "center" }}
+              >
+                {/* Icon */}
                 <View
                   style={[
                     styles.docIcon,
@@ -257,6 +325,8 @@ export default function VaultScreen() {
                 >
                   <Feather name="file-text" size={22} color={item.color} />
                 </View>
+
+                {/* Info */}
                 <View style={{ flex: 1 }}>
                   <Text
                     style={{
@@ -304,11 +374,7 @@ export default function VaultScreen() {
                           gap: 3,
                         }}
                       >
-                        <Feather
-                          name="zap"
-                          size={11}
-                          color={colors.primary}
-                        />
+                        <Feather name="zap" size={11} color={colors.primary} />
                         <Text
                           style={{
                             color: colors.primary,
@@ -322,17 +388,63 @@ export default function VaultScreen() {
                     ) : null}
                   </View>
                 </View>
-                <Feather
-                  name="message-circle"
-                  size={18}
-                  color={colors.mutedForeground}
-                />
+
+                {/* Action buttons */}
+                <View style={{ flexDirection: "row", gap: 8 }}>
+                  {/* Quiz */}
+                  <Pressable
+                    onPress={(e) => {
+                      e.stopPropagation();
+                      openQuizModal(item);
+                    }}
+                    hitSlop={8}
+                    style={({ pressed }) => [
+                      styles.actionBtn,
+                      {
+                        backgroundColor:
+                          item.chunks?.length
+                            ? colors.primary + "12"
+                            : colors.secondary,
+                        opacity: pressed ? 0.7 : 1,
+                      },
+                    ]}
+                  >
+                    <Feather
+                      name="zap"
+                      size={15}
+                      color={
+                        item.chunks?.length
+                          ? colors.primary
+                          : colors.mutedForeground
+                      }
+                    />
+                  </Pressable>
+                  {/* Chat */}
+                  <Pressable
+                    onPress={() => router.push(`/vault-chat/${item.id}` as never)}
+                    hitSlop={8}
+                    style={({ pressed }) => [
+                      styles.actionBtn,
+                      {
+                        backgroundColor: colors.secondary,
+                        opacity: pressed ? 0.7 : 1,
+                      },
+                    ]}
+                  >
+                    <Feather
+                      name="message-circle"
+                      size={15}
+                      color={colors.mutedForeground}
+                    />
+                  </Pressable>
+                </View>
               </View>
             </Card>
           </Pressable>
         )}
       />
 
+      {/* ── Add-document modal ─────────────────────────────────────────────── */}
       <Modal
         visible={modalOpen}
         transparent
@@ -532,6 +644,198 @@ export default function VaultScreen() {
           </Pressable>
         </Pressable>
       </Modal>
+
+      {/* ── Quiz-from-doc modal ────────────────────────────────────────────── */}
+      <Modal
+        visible={!!quizDoc}
+        transparent
+        animationType="fade"
+        onRequestClose={closeQuizModal}
+      >
+        <Pressable style={styles.modalBackdrop} onPress={closeQuizModal}>
+          <Pressable
+            style={[
+              styles.modalCard,
+              { backgroundColor: colors.card, borderColor: colors.border },
+            ]}
+            onPress={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 12,
+                marginBottom: 20,
+              }}
+            >
+              <View
+                style={{
+                  width: 46,
+                  height: 46,
+                  borderRadius: 14,
+                  backgroundColor: (quizDoc?.color ?? colors.primary) + "18",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <Feather
+                  name="zap"
+                  size={20}
+                  color={quizDoc?.color ?? colors.primary}
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text
+                  style={{
+                    color: colors.foreground,
+                    fontFamily: "Inter_800ExtraBold",
+                    fontSize: 17,
+                    letterSpacing: -0.4,
+                  }}
+                  numberOfLines={2}
+                >
+                  {quizDoc?.title}
+                </Text>
+                <Text
+                  style={{
+                    color: quizDoc?.color ?? colors.primary,
+                    fontFamily: "Inter_600SemiBold",
+                    fontSize: 12,
+                    marginTop: 2,
+                  }}
+                >
+                  Quiz from this document
+                </Text>
+              </View>
+            </View>
+
+            {/* Chunk coverage badge */}
+            {quizDoc?.chunkCount ? (
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 6,
+                  backgroundColor: colors.primary + "0E",
+                  borderRadius: 10,
+                  paddingHorizontal: 12,
+                  paddingVertical: 8,
+                  marginBottom: 18,
+                  borderWidth: 1,
+                  borderColor: colors.primary + "25",
+                }}
+              >
+                <Feather name="layers" size={13} color={colors.primary} />
+                <Text
+                  style={{
+                    color: colors.primary,
+                    fontFamily: "Inter_500Medium",
+                    fontSize: 12,
+                    flex: 1,
+                  }}
+                >
+                  Questions will cover{" "}
+                  {Math.min(10, quizDoc.chunkCount)} of{" "}
+                  {quizDoc.chunkCount} passages, sampled across the whole
+                  document.
+                </Text>
+              </View>
+            ) : null}
+
+            {/* Count picker */}
+            <Text style={[styles.label, { color: colors.mutedForeground }]}>
+              NUMBER OF QUESTIONS
+            </Text>
+            <View style={{ flexDirection: "row", gap: 8, marginBottom: 20 }}>
+              {QUIZ_COUNTS.map((c) => {
+                const active = quizCount === c;
+                return (
+                  <Pressable
+                    key={c}
+                    onPress={() => !quizGenerating && setQuizCount(c)}
+                    style={{
+                      flex: 1,
+                      paddingVertical: 14,
+                      borderRadius: 14,
+                      borderWidth: 1.5,
+                      borderColor: active ? colors.primary : colors.border,
+                      backgroundColor: active
+                        ? colors.primary + "10"
+                        : colors.background,
+                      alignItems: "center",
+                    }}
+                  >
+                    <Text
+                      style={{
+                        color: active ? colors.primary : colors.foreground,
+                        fontFamily: "Inter_700Bold",
+                        fontSize: 18,
+                      }}
+                    >
+                      {c}
+                    </Text>
+                    <Text
+                      style={{
+                        color: active
+                          ? colors.primary
+                          : colors.mutedForeground,
+                        fontFamily: "Inter_500Medium",
+                        fontSize: 10,
+                        marginTop: 2,
+                      }}
+                    >
+                      Qs
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            {/* Actions */}
+            <View style={{ flexDirection: "row", gap: 10 }}>
+              <Button
+                label="Cancel"
+                variant="ghost"
+                onPress={closeQuizModal}
+                style={{ flex: 1 }}
+              />
+              <View style={{ flex: 1 }}>
+                {quizGenerating ? (
+                  <View
+                    style={{
+                      height: 50,
+                      borderRadius: 999,
+                      backgroundColor: colors.primary,
+                      alignItems: "center",
+                      justifyContent: "center",
+                      flexDirection: "row",
+                      gap: 10,
+                    }}
+                  >
+                    <ActivityIndicator color="#fff" />
+                    <Text
+                      style={{
+                        color: "#fff",
+                        fontFamily: "Inter_700Bold",
+                        fontSize: 14,
+                      }}
+                    >
+                      Generating…
+                    </Text>
+                  </View>
+                ) : (
+                  <GradientButton
+                    label="Generate quiz"
+                    icon="zap"
+                    onPress={handleGenerateQuiz}
+                  />
+                )}
+              </View>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -555,7 +859,8 @@ function blobToBase64(blob: Blob): Promise<string> {
         reject(new Error("FileReader did not return a string"));
       }
     };
-    reader.onerror = () => reject(reader.error ?? new Error("FileReader error"));
+    reader.onerror = () =>
+      reject(reader.error ?? new Error("FileReader error"));
     reader.readAsDataURL(blob);
   });
 }
@@ -572,6 +877,13 @@ const styles = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  actionBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
   },

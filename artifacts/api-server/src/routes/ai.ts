@@ -303,30 +303,51 @@ router.post("/ai/evaluate", async (req, res) => {
 
 router.post("/ai/quiz", async (req, res) => {
   try {
-    const { topic, count } = req.body ?? {};
+    const { topic, count, documentTitle, documentPassages } = req.body ?? {};
     const n = Math.max(1, Math.min(20, Number(count) || 5));
-    const t =
-      typeof topic === "string" && topic.trim()
+    const hasDoc =
+      Array.isArray(documentPassages) &&
+      documentPassages.length > 0 &&
+      typeof documentTitle === "string" &&
+      documentTitle.trim();
+
+    const t = hasDoc
+      ? (documentTitle as string).trim()
+      : typeof topic === "string" && topic.trim()
         ? topic.trim()
         : "Indian Polity";
 
-    const system = [
-      "You generate UPSC Prelims-grade MCQs.",
+    const systemParts = [
+      "You are a senior UPSC Prelims question-setter. Generate exam-grade MCQs.",
       "Return STRICT JSON ONLY (no markdown fences) matching:",
       "{ questions: { id: string, question: string, options: string[] /* exactly 4 */, correctIndex: number /* 0-3 */, explanation: string, topic: string }[] }",
       "Rules: factually accurate, single best answer, plausible distractors, neutral framing, India-focused where relevant.",
-    ].join("\n");
+    ];
+
+    if (hasDoc) {
+      const passages = (documentPassages as string[])
+        .map((p, i) => `[Passage ${i + 1}]\n${p}`)
+        .join("\n\n");
+      systemParts.push(
+        "\nThe questions MUST be grounded in the following passages from the aspirant's uploaded document. Do not invent facts outside these passages.",
+        `--- DOCUMENT: ${t} ---`,
+        passages,
+        "--- END DOCUMENT ---",
+        "Vary the questions across different passages and subtopics for broad coverage.",
+      );
+    }
+
+    const userPrompt = hasDoc
+      ? `Generate exactly ${n} UPSC Prelims MCQs from the passages above. Assign topic labels that reflect the passage subtopic. Use ids q1..q${n}.`
+      : `Topic: ${t}\nGenerate exactly ${n} MCQs. Vary subtopics. Use ids q1..q${n}.`;
 
     const response = await openai.chat.completions.create({
       model: MODEL,
       max_completion_tokens: 3000,
       response_format: { type: "json_object" },
       messages: [
-        { role: "system", content: system },
-        {
-          role: "user",
-          content: `Topic: ${t}\nGenerate exactly ${n} MCQs. Vary subtopics. Use ids q1..q${n}.`,
-        },
+        { role: "system", content: systemParts.join("\n") },
+        { role: "user", content: userPrompt },
       ],
     });
 
