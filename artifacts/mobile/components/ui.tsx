@@ -277,26 +277,42 @@ export function Pill({
 
 export function SectionHeader({
   title,
+  subtitle,
   action,
   onActionPress,
 }: {
   title: string;
+  subtitle?: string;
   action?: string;
   onActionPress?: () => void;
 }) {
   const colors = useColors();
   return (
     <View style={styles.sectionHeader}>
-      <Text
-        style={{
-          color: colors.foreground,
-          fontFamily: "Inter_700Bold",
-          fontSize: 18,
-          letterSpacing: -0.3,
-        }}
-      >
-        {title}
-      </Text>
+      <View style={{ flex: 1 }}>
+        <Text
+          style={{
+            color: colors.foreground,
+            fontFamily: "Inter_700Bold",
+            fontSize: 18,
+            letterSpacing: -0.3,
+          }}
+        >
+          {title}
+        </Text>
+        {subtitle ? (
+          <Text
+            style={{
+              color: colors.mutedForeground,
+              fontFamily: "Inter_500Medium",
+              fontSize: 12,
+              marginTop: 1,
+            }}
+          >
+            {subtitle}
+          </Text>
+        ) : null}
+      </View>
       {action && (
         <Pressable onPress={onActionPress} hitSlop={10}>
           <Text

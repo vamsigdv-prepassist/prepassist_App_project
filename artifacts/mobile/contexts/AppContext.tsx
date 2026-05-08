@@ -55,6 +55,7 @@ export type QuizQuestion = {
   options: string[];
   correctIndex: number;
   explanation: string;
+  subtopic?: string;
 };
 
 export type QuizAttempt = {

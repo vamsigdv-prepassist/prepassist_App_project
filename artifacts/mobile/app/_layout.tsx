@@ -52,6 +52,19 @@ function RootLayoutNav() {
           presentation: "modal",
         }}
       />
+      <Stack.Screen
+        name="weak-areas"
+        options={{
+          headerShown: true,
+          headerTitle: "Weak Areas",
+          headerShadowVisible: false,
+          headerStyle: { backgroundColor: "#F8FAFC" },
+          headerTitleStyle: {
+            fontFamily: "Inter_700Bold",
+            fontSize: 17,
+          },
+        }}
+      />
     </Stack>
   );
 }

@@ -23,9 +23,145 @@ import {
   ScreenHeader,
   SectionHeader,
 } from "@/components/ui";
-import { useApp } from "@/contexts/AppContext";
+import { useApp, type QuizAttempt } from "@/contexts/AppContext";
 import { useColors } from "@/hooks/useColors";
 import { generateQuiz } from "@/lib/ai";
+
+function WeakAreaTeaser({
+  quizzes,
+  onPress,
+}: {
+  quizzes: QuizAttempt[];
+  onPress: () => void;
+}) {
+  const colors = useColors();
+
+  const topicMap = new Map<string, { correct: number; total: number }>();
+  for (const q of quizzes) {
+    const e = topicMap.get(q.topic) ?? { correct: 0, total: 0 };
+    e.correct += q.score;
+    e.total += q.questions.length;
+    topicMap.set(q.topic, e);
+  }
+
+  const sorted = Array.from(topicMap.entries())
+    .map(([topic, s]) => ({
+      topic,
+      accuracy: Math.round((s.correct / s.total) * 100),
+    }))
+    .sort((a, b) => a.accuracy - b.accuracy)
+    .slice(0, 3);
+
+  const hasWeak = sorted.some((s) => s.accuracy < 60);
+
+  return (
+    <View style={{ paddingHorizontal: 20, marginTop: 24 }}>
+      <SectionHeader
+        title="Weak areas"
+        action="See all →"
+        onActionPress={onPress}
+      />
+      <Pressable onPress={onPress}>
+        <Card>
+          {!hasWeak ? (
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 10,
+              }}
+            >
+              <View
+                style={{
+                  width: 36,
+                  height: 36,
+                  borderRadius: 12,
+                  backgroundColor: colors.success + "18",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <Feather name="award" size={16} color={colors.success} />
+              </View>
+              <Text
+                style={{
+                  color: colors.foreground,
+                  fontFamily: "Inter_600SemiBold",
+                  fontSize: 14,
+                  flex: 1,
+                }}
+              >
+                No weak spots yet — keep drilling!
+              </Text>
+            </View>
+          ) : (
+            <View style={{ gap: 10 }}>
+              {sorted.map((s) => {
+                const color =
+                  s.accuracy < 50
+                    ? colors.destructive
+                    : s.accuracy < 65
+                      ? colors.warning
+                      : colors.success;
+                return (
+                  <View key={s.topic}>
+                    <View
+                      style={{
+                        flexDirection: "row",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        marginBottom: 5,
+                      }}
+                    >
+                      <Text
+                        style={{
+                          color: colors.foreground,
+                          fontFamily: "Inter_600SemiBold",
+                          fontSize: 13,
+                          flex: 1,
+                        }}
+                        numberOfLines={1}
+                      >
+                        {s.topic}
+                      </Text>
+                      <Text
+                        style={{
+                          color,
+                          fontFamily: "Inter_700Bold",
+                          fontSize: 13,
+                          marginLeft: 8,
+                        }}
+                      >
+                        {s.accuracy}%
+                      </Text>
+                    </View>
+                    <View
+                      style={{
+                        height: 5,
+                        borderRadius: 999,
+                        backgroundColor: color + "22",
+                        overflow: "hidden",
+                      }}
+                    >
+                      <View
+                        style={{
+                          width: `${s.accuracy}%`,
+                          height: "100%",
+                          borderRadius: 999,
+                          backgroundColor: color,
+                        }}
+                      />
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
+          )}
+        </Card>
+      </Pressable>
+    </View>
+  );
+}
 
 const PRESET_TOPICS = [
   { name: "Polity", icon: "shield" as const, color: "#4F39F6" },
@@ -240,6 +376,11 @@ export default function QuizScreen() {
             ))}
           </View>
         </View>
+
+        {/* Weak Areas teaser */}
+        {completed.length >= 1 && (
+          <WeakAreaTeaser quizzes={completed} onPress={() => router.push("/weak-areas" as never)} />
+        )}
 
         {/* History */}
         <View style={{ paddingHorizontal: 20, marginTop: 24 }}>

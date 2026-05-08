@@ -336,6 +336,7 @@ export async function generateQuiz(
       options?: string[];
       correctIndex?: number;
       explanation?: string;
+      topic?: string;
     }[];
   }>("/ai/quiz", body);
 
@@ -353,6 +354,7 @@ export async function generateQuiz(
       options: q.options!,
       correctIndex: Math.max(0, Math.min(3, q.correctIndex!)),
       explanation: q.explanation || "",
+      subtopic: typeof q.topic === "string" ? q.topic : undefined,
     }));
 }
 
