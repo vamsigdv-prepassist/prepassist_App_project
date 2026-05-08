@@ -46,12 +46,14 @@ export default function MainsScreen() {
   const { evaluations, addEvaluation } = useApp();
 
   const [composerOpen, setComposerOpen] = useState(false);
+  const [inputMode, setInputMode] = useState<"photo" | "text">("photo");
   const [question, setQuestion] = useState("");
   const [paper, setPaper] = useState<MainsEvaluation["paper"]>("GS-2");
   const [wordCount, setWordCount] = useState("");
   const [imageUri, setImageUri] = useState<string | null>(null);
   const [imageBase64, setImageBase64] = useState<string | null>(null);
   const [imageMime, setImageMime] = useState<string>("image/jpeg");
+  const [answerText, setAnswerText] = useState("");
   const [evaluating, setEvaluating] = useState(false);
 
   const reset = () => {
@@ -61,6 +63,8 @@ export default function MainsScreen() {
     setImageUri(null);
     setImageBase64(null);
     setImageMime("image/jpeg");
+    setAnswerText("");
+    setInputMode("photo");
   };
 
   const captureFromCamera = async () => {
@@ -109,22 +113,25 @@ export default function MainsScreen() {
       Alert.alert("Question required", "Type the question prompt.");
       return;
     }
-    if (!imageBase64) {
+    if (inputMode === "photo" && !imageBase64) {
       Alert.alert(
         "Photo required",
         "Capture or upload a photo of your handwritten answer so the AI can grade it.",
       );
       return;
     }
+    if (inputMode === "text" && !answerText.trim()) {
+      Alert.alert("Answer required", "Type your answer in the text area.");
+      return;
+    }
     const wc = Number(wordCount) || (paper === "Essay" ? 950 : 240);
     setEvaluating(true);
     try {
-      const result = await evaluateMains({
-        question: question.trim(),
-        paper,
-        imageBase64,
-        mimeType: imageMime,
-      });
+      const result = await evaluateMains(
+        inputMode === "photo"
+          ? { question: question.trim(), paper, imageBase64: imageBase64!, mimeType: imageMime }
+          : { question: question.trim(), paper, answerText: answerText.trim() },
+      );
       const e = addEvaluation({
         question: question.trim(),
         imageUri,
@@ -407,81 +414,157 @@ export default function MainsScreen() {
                 The AI grades against the actual UPSC rubric.
               </Text>
 
-              {/* Image */}
+              {/* Mode toggle */}
+              <View
+                style={{
+                  flexDirection: "row",
+                  backgroundColor: colors.secondary,
+                  borderRadius: 14,
+                  padding: 3,
+                  marginBottom: 18,
+                  gap: 3,
+                }}
+              >
+                {(["photo", "text"] as const).map((mode) => {
+                  const active = inputMode === mode;
+                  return (
+                    <Pressable
+                      key={mode}
+                      onPress={() => !evaluating && setInputMode(mode)}
+                      style={{
+                        flex: 1,
+                        paddingVertical: 9,
+                        borderRadius: 11,
+                        backgroundColor: active ? colors.card : "transparent",
+                        alignItems: "center",
+                        flexDirection: "row",
+                        justifyContent: "center",
+                        gap: 6,
+                        shadowColor: active ? "#0F172B" : "transparent",
+                        shadowOpacity: 0.06,
+                        shadowOffset: { width: 0, height: 2 },
+                        shadowRadius: 4,
+                        elevation: active ? 1 : 0,
+                      }}
+                    >
+                      <Feather
+                        name={mode === "photo" ? "camera" : "edit-3"}
+                        size={14}
+                        color={active ? colors.primary : colors.mutedForeground}
+                      />
+                      <Text
+                        style={{
+                          color: active ? colors.foreground : colors.mutedForeground,
+                          fontFamily: active ? "Inter_600SemiBold" : "Inter_500Medium",
+                          fontSize: 13,
+                        }}
+                      >
+                        {mode === "photo" ? "Photo" : "Type answer"}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+
+              {/* Answer input — photo or text */}
               <Text style={[styles.label, { color: colors.mutedForeground }]}>
-                ANSWER SCRIPT
+                {inputMode === "photo" ? "ANSWER SCRIPT" : "YOUR ANSWER"}
               </Text>
-              {imageUri ? (
-                <View style={{ marginBottom: 14 }}>
-                  <Image
-                    source={{ uri: imageUri }}
-                    style={{
-                      width: "100%",
-                      height: 200,
-                      borderRadius: 16,
-                      backgroundColor: colors.muted,
-                    }}
-                    contentFit="cover"
-                  />
-                  <Pressable
-                    onPress={() => setImageUri(null)}
-                    style={[
-                      styles.removeBtn,
-                      { backgroundColor: colors.background },
-                    ]}
-                  >
-                    <Feather name="x" size={16} color={colors.foreground} />
-                  </Pressable>
-                </View>
+
+              {inputMode === "photo" ? (
+                imageUri ? (
+                  <View style={{ marginBottom: 14 }}>
+                    <Image
+                      source={{ uri: imageUri }}
+                      style={{
+                        width: "100%",
+                        height: 200,
+                        borderRadius: 16,
+                        backgroundColor: colors.muted,
+                      }}
+                      contentFit="cover"
+                    />
+                    <Pressable
+                      onPress={() => setImageUri(null)}
+                      style={[
+                        styles.removeBtn,
+                        { backgroundColor: colors.background },
+                      ]}
+                    >
+                      <Feather name="x" size={16} color={colors.foreground} />
+                    </Pressable>
+                  </View>
+                ) : (
+                  <View style={{ flexDirection: "row", gap: 10, marginBottom: 14 }}>
+                    <Pressable
+                      onPress={captureFromCamera}
+                      style={({ pressed }) => [
+                        styles.captureOption,
+                        {
+                          borderColor: colors.border,
+                          backgroundColor: colors.card,
+                          opacity: pressed ? 0.8 : 1,
+                        },
+                      ]}
+                    >
+                      <Feather name="camera" size={22} color={colors.primary} />
+                      <Text
+                        style={{
+                          color: colors.foreground,
+                          fontFamily: "Inter_600SemiBold",
+                          fontSize: 13,
+                          marginTop: 6,
+                        }}
+                      >
+                        Camera
+                      </Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={pickFromLibrary}
+                      style={({ pressed }) => [
+                        styles.captureOption,
+                        {
+                          borderColor: colors.border,
+                          backgroundColor: colors.card,
+                          opacity: pressed ? 0.8 : 1,
+                        },
+                      ]}
+                    >
+                      <Feather name="image" size={22} color={colors.accent} />
+                      <Text
+                        style={{
+                          color: colors.foreground,
+                          fontFamily: "Inter_600SemiBold",
+                          fontSize: 13,
+                          marginTop: 6,
+                        }}
+                      >
+                        Gallery
+                      </Text>
+                    </Pressable>
+                  </View>
+                )
               ) : (
-                <View style={{ flexDirection: "row", gap: 10, marginBottom: 14 }}>
-                  <Pressable
-                    onPress={captureFromCamera}
-                    style={({ pressed }) => [
-                      styles.captureOption,
-                      {
-                        borderColor: colors.border,
-                        backgroundColor: colors.card,
-                        opacity: pressed ? 0.8 : 1,
-                      },
-                    ]}
-                  >
-                    <Feather name="camera" size={22} color={colors.primary} />
-                    <Text
-                      style={{
-                        color: colors.foreground,
-                        fontFamily: "Inter_600SemiBold",
-                        fontSize: 13,
-                        marginTop: 6,
-                      }}
-                    >
-                      Camera
-                    </Text>
-                  </Pressable>
-                  <Pressable
-                    onPress={pickFromLibrary}
-                    style={({ pressed }) => [
-                      styles.captureOption,
-                      {
-                        borderColor: colors.border,
-                        backgroundColor: colors.card,
-                        opacity: pressed ? 0.8 : 1,
-                      },
-                    ]}
-                  >
-                    <Feather name="image" size={22} color={colors.accent} />
-                    <Text
-                      style={{
-                        color: colors.foreground,
-                        fontFamily: "Inter_600SemiBold",
-                        fontSize: 13,
-                        marginTop: 6,
-                      }}
-                    >
-                      Gallery
-                    </Text>
-                  </Pressable>
-                </View>
+                <TextInput
+                  value={answerText}
+                  onChangeText={setAnswerText}
+                  editable={!evaluating}
+                  placeholder={`Write your ${paper === "Essay" ? "essay" : "answer"} here… (aim for ${paper === "Essay" ? "1000" : "250"} words)`}
+                  placeholderTextColor={colors.mutedForeground}
+                  multiline
+                  textAlignVertical="top"
+                  style={[
+                    styles.input,
+                    {
+                      borderColor: answerText.trim()
+                        ? colors.primary + "80"
+                        : colors.border,
+                      backgroundColor: colors.card,
+                      color: colors.foreground,
+                      minHeight: 160,
+                    },
+                  ]}
+                />
               )}
 
               <Text style={[styles.label, { color: colors.mutedForeground }]}>

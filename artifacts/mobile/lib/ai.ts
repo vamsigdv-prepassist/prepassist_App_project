@@ -202,8 +202,9 @@ const RUBRIC_TO_KEY: Record<string, keyof MainsScores> = {
 export async function evaluateMains(params: {
   question: string;
   paper: string;
-  imageBase64: string;
+  imageBase64?: string;
   mimeType?: string;
+  answerText?: string;
 }): Promise<MainsResult> {
   const { evaluation } = await callApi<{
     evaluation: {

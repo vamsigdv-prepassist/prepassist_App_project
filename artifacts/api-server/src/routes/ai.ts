@@ -237,16 +237,24 @@ router.post("/ai/rag/stream", async (req, res) => {
 
 router.post("/ai/evaluate", async (req, res) => {
   try {
-    const { paper, question, imageBase64, mimeType } = req.body ?? {};
-    if (!imageBase64 || typeof imageBase64 !== "string") {
-      res.status(400).json({ error: "imageBase64 is required" });
+    const { paper, question, imageBase64, mimeType, answerText } =
+      req.body ?? {};
+    const hasImage =
+      typeof imageBase64 === "string" && imageBase64.length > 0;
+    const hasText =
+      typeof answerText === "string" && answerText.trim().length > 0;
+
+    if (!hasImage && !hasText) {
+      res
+        .status(400)
+        .json({ error: "Either imageBase64 or answerText is required" });
       return;
     }
-    const mt =
-      typeof mimeType === "string" && mimeType ? mimeType : "image/jpeg";
 
     const system = [
-      "You are a senior UPSC Mains examiner. Grade the aspirant's handwritten answer captured in the photo.",
+      hasImage
+        ? "You are a senior UPSC Mains examiner. Grade the aspirant's handwritten answer captured in the photo."
+        : "You are a senior UPSC Mains examiner. Grade the aspirant's typed answer provided below.",
       "Return STRICT JSON ONLY (no prose, no markdown fences) matching this TypeScript type:",
       "{",
       "  totalScore: number, // out of 50",
@@ -257,16 +265,30 @@ router.post("/ai/evaluate", async (req, res) => {
       "  rankerInsight: string, // 1-2 sentences a topper would add",
       "  modelIntro: string, // a 2-3 sentence improved opening paragraph",
       "}",
-      "Be honest, specific, and tie comments to the visible answer.",
+      "Be honest, specific, and tie comments to the actual answer content.",
     ].join("\n");
 
     const userText = [
       `Paper: ${paper ?? "GS"}`,
       question
         ? `Question: ${question}`
-        : "Infer the question from the script.",
-      "Grade the attached handwritten response.",
+        : "Infer the question from the answer.",
+      hasText ? `Answer:\n${(answerText as string).trim()}` : "Grade the attached handwritten response.",
     ].join("\n");
+
+    const userContent: Parameters<
+      typeof openai.chat.completions.create
+    >[0]["messages"][0]["content"] = hasImage
+      ? [
+          { type: "text" as const, text: userText },
+          {
+            type: "image_url" as const,
+            image_url: {
+              url: `data:${typeof mimeType === "string" && mimeType ? mimeType : "image/jpeg"};base64,${imageBase64}`,
+            },
+          },
+        ]
+      : userText;
 
     const response = await openai.chat.completions.create({
       model: MODEL,
@@ -274,16 +296,7 @@ router.post("/ai/evaluate", async (req, res) => {
       response_format: { type: "json_object" },
       messages: [
         { role: "system", content: system },
-        {
-          role: "user",
-          content: [
-            { type: "text", text: userText },
-            {
-              type: "image_url",
-              image_url: { url: `data:${mt};base64,${imageBase64}` },
-            },
-          ],
-        },
+        { role: "user", content: userContent },
       ],
     });
 

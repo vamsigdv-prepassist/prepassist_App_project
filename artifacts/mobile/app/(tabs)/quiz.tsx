@@ -3,7 +3,9 @@ import * as Haptics from "expo-haptics";
 import { useRouter } from "expo-router";
 import React, { useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -23,7 +25,7 @@ import {
   ScreenHeader,
   SectionHeader,
 } from "@/components/ui";
-import { useApp, type QuizAttempt } from "@/contexts/AppContext";
+import { useApp, type QuizAttempt, type VaultDocument } from "@/contexts/AppContext";
 import { useColors } from "@/hooks/useColors";
 import { generateQuiz } from "@/lib/ai";
 
@@ -178,11 +180,48 @@ export default function QuizScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const isWeb = Platform.OS === "web";
-  const { quizzes, addQuiz } = useApp();
+  const { quizzes, addQuiz, documents } = useApp();
 
   const [topic, setTopic] = useState("");
   const [count, setCount] = useState(10);
   const [generating, setGenerating] = useState(false);
+
+  // Quiz-from-vault state
+  const [quizDoc, setQuizDoc] = useState<VaultDocument | null>(null);
+  const [quizDocCount, setQuizDocCount] = useState(10);
+  const [quizDocGenerating, setQuizDocGenerating] = useState(false);
+
+  const handleGenerateFromDoc = async () => {
+    if (!quizDoc?.chunks?.length) return;
+    setQuizDocGenerating(true);
+    try {
+      const questions = await generateQuiz(quizDoc.title, quizDocCount, {
+        documentTitle: quizDoc.title,
+        documentChunks: quizDoc.chunks,
+      });
+      if (!questions.length) {
+        Alert.alert("No questions", "Couldn't generate questions from this document.");
+        return;
+      }
+      const q = addQuiz({
+        topic: quizDoc.title,
+        source: "pdf",
+        questions,
+        answers: questions.map(() => null),
+        score: 0,
+        durationSec: 0,
+        completed: false,
+      });
+      if (Platform.OS !== "web")
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      setQuizDoc(null);
+      router.push({ pathname: "/quiz-session", params: { id: q.id } } as never);
+    } catch {
+      Alert.alert("Failed", "Quiz generation failed. Check your connection and try again.");
+    } finally {
+      setQuizDocGenerating(false);
+    }
+  };
 
   const start = async (topicArg?: string) => {
     const t = (topicArg ?? topic).trim();
@@ -377,6 +416,96 @@ export default function QuizScreen() {
           </View>
         </View>
 
+        {/* From your vault */}
+        {documents.length > 0 && (
+          <View style={{ paddingHorizontal: 20, marginTop: 24 }}>
+            <SectionHeader
+              title="From your vault"
+              subtitle="Generate MCQs grounded in your indexed PDFs"
+            />
+            <View style={{ gap: 10 }}>
+              {documents.slice(0, 4).map((doc) => (
+                <Pressable
+                  key={doc.id}
+                  onPress={() => {
+                    if (!doc.chunks?.length) {
+                      Alert.alert("Not indexed", "This document has no extracted text for quiz generation.");
+                      return;
+                    }
+                    setQuizDoc(doc);
+                    setQuizDocCount(10);
+                  }}
+                  style={({ pressed }) => ({
+                    transform: pressed ? [{ scale: 0.99 }] : [],
+                  })}
+                >
+                  <Card>
+                    <View style={{ flexDirection: "row", gap: 12, alignItems: "center" }}>
+                      <View
+                        style={{
+                          width: 42,
+                          height: 42,
+                          borderRadius: 12,
+                          backgroundColor: (doc.color ?? colors.primary) + "18",
+                          alignItems: "center",
+                          justifyContent: "center",
+                        }}
+                      >
+                        <Feather name="file-text" size={18} color={doc.color ?? colors.primary} />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text
+                          style={{
+                            color: colors.foreground,
+                            fontFamily: "Inter_700Bold",
+                            fontSize: 14,
+                            letterSpacing: -0.1,
+                          }}
+                          numberOfLines={1}
+                        >
+                          {doc.title}
+                        </Text>
+                        <Text
+                          style={{
+                            color: colors.mutedForeground,
+                            fontFamily: "Inter_500Medium",
+                            fontSize: 12,
+                            marginTop: 2,
+                          }}
+                        >
+                          {doc.subject} · {doc.chunkCount ?? doc.chunks?.length ?? 0} passages
+                        </Text>
+                      </View>
+                      <View
+                        style={{
+                          flexDirection: "row",
+                          alignItems: "center",
+                          gap: 4,
+                          backgroundColor: doc.chunks?.length ? colors.primary + "12" : colors.secondary,
+                          borderRadius: 8,
+                          paddingHorizontal: 10,
+                          paddingVertical: 6,
+                        }}
+                      >
+                        <Feather name="zap" size={13} color={doc.chunks?.length ? colors.primary : colors.mutedForeground} />
+                        <Text
+                          style={{
+                            color: doc.chunks?.length ? colors.primary : colors.mutedForeground,
+                            fontFamily: "Inter_600SemiBold",
+                            fontSize: 12,
+                          }}
+                        >
+                          Quiz
+                        </Text>
+                      </View>
+                    </View>
+                  </Card>
+                </Pressable>
+              ))}
+            </View>
+          </View>
+        )}
+
         {/* Weak Areas teaser */}
         {completed.length >= 1 && (
           <WeakAreaTeaser quizzes={completed} onPress={() => router.push("/weak-areas" as never)} />
@@ -492,6 +621,199 @@ export default function QuizScreen() {
           )}
         </View>
       </ScrollView>
+
+      {/* Quiz-from-vault modal */}
+      <Modal
+        visible={!!quizDoc}
+        transparent
+        animationType="fade"
+        onRequestClose={() => !quizDocGenerating && setQuizDoc(null)}
+      >
+        <Pressable
+          style={{
+            flex: 1,
+            backgroundColor: "rgba(15,23,43,0.45)",
+            justifyContent: "center",
+            paddingHorizontal: 20,
+          }}
+          onPress={() => !quizDocGenerating && setQuizDoc(null)}
+        >
+          <Pressable
+            style={{
+              backgroundColor: colors.card,
+              borderRadius: 24,
+              padding: 22,
+              borderWidth: 1,
+              borderColor: colors.border,
+            }}
+            onPress={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 18 }}>
+              <View
+                style={{
+                  width: 46,
+                  height: 46,
+                  borderRadius: 14,
+                  backgroundColor: (quizDoc?.color ?? colors.primary) + "18",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <Feather name="zap" size={20} color={quizDoc?.color ?? colors.primary} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text
+                  style={{
+                    color: colors.foreground,
+                    fontFamily: "Inter_800ExtraBold",
+                    fontSize: 17,
+                    letterSpacing: -0.4,
+                  }}
+                  numberOfLines={2}
+                >
+                  {quizDoc?.title}
+                </Text>
+                <Text
+                  style={{
+                    color: quizDoc?.color ?? colors.primary,
+                    fontFamily: "Inter_600SemiBold",
+                    fontSize: 12,
+                    marginTop: 2,
+                  }}
+                >
+                  Quiz from this document
+                </Text>
+              </View>
+            </View>
+
+            {/* Passage coverage note */}
+            {quizDoc?.chunkCount ? (
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 6,
+                  backgroundColor: colors.primary + "0E",
+                  borderRadius: 10,
+                  paddingHorizontal: 12,
+                  paddingVertical: 8,
+                  marginBottom: 18,
+                  borderWidth: 1,
+                  borderColor: colors.primary + "25",
+                }}
+              >
+                <Feather name="layers" size={13} color={colors.primary} />
+                <Text
+                  style={{
+                    color: colors.primary,
+                    fontFamily: "Inter_500Medium",
+                    fontSize: 12,
+                    flex: 1,
+                  }}
+                >
+                  Covers {Math.min(10, quizDoc.chunkCount)} of {quizDoc.chunkCount} passages, sampled across the whole document.
+                </Text>
+              </View>
+            ) : null}
+
+            {/* Count picker */}
+            <Text
+              style={{
+                color: colors.mutedForeground,
+                fontFamily: "Inter_600SemiBold",
+                fontSize: 11,
+                letterSpacing: 0.6,
+                marginBottom: 8,
+              }}
+            >
+              NUMBER OF QUESTIONS
+            </Text>
+            <View style={{ flexDirection: "row", gap: 8, marginBottom: 20 }}>
+              {COUNTS.map((c) => {
+                const active = quizDocCount === c;
+                return (
+                  <Pressable
+                    key={c}
+                    onPress={() => !quizDocGenerating && setQuizDocCount(c)}
+                    style={{
+                      flex: 1,
+                      paddingVertical: 14,
+                      borderRadius: 14,
+                      borderWidth: 1.5,
+                      borderColor: active ? colors.primary : colors.border,
+                      backgroundColor: active ? colors.primary + "10" : colors.background,
+                      alignItems: "center",
+                    }}
+                  >
+                    <Text
+                      style={{
+                        color: active ? colors.primary : colors.foreground,
+                        fontFamily: "Inter_700Bold",
+                        fontSize: 18,
+                      }}
+                    >
+                      {c}
+                    </Text>
+                    <Text
+                      style={{
+                        color: active ? colors.primary : colors.mutedForeground,
+                        fontFamily: "Inter_500Medium",
+                        fontSize: 10,
+                        marginTop: 2,
+                      }}
+                    >
+                      Qs
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            {/* Actions */}
+            <View style={{ flexDirection: "row", gap: 10 }}>
+              <Button
+                label="Cancel"
+                variant="ghost"
+                onPress={() => !quizDocGenerating && setQuizDoc(null)}
+                style={{ flex: 1 }}
+              />
+              <View style={{ flex: 1 }}>
+                {quizDocGenerating ? (
+                  <View
+                    style={{
+                      height: 50,
+                      borderRadius: 999,
+                      backgroundColor: colors.primary,
+                      alignItems: "center",
+                      justifyContent: "center",
+                      flexDirection: "row",
+                      gap: 10,
+                    }}
+                  >
+                    <ActivityIndicator color="#fff" />
+                    <Text
+                      style={{
+                        color: "#fff",
+                        fontFamily: "Inter_700Bold",
+                        fontSize: 14,
+                      }}
+                    >
+                      Generating…
+                    </Text>
+                  </View>
+                ) : (
+                  <GradientButton
+                    label="Generate quiz"
+                    icon="zap"
+                    onPress={handleGenerateFromDoc}
+                  />
+                )}
+              </View>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
