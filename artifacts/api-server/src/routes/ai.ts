@@ -6,6 +6,8 @@ const router: IRouter = Router();
 
 const MODEL = "gpt-5.4";
 
+const CHUNK_SIZE = 1_500;
+const CHUNK_OVERLAP = 200;
 const MAX_DOC_CHARS = 60_000;
 
 function clampDocText(text: string) {
@@ -13,6 +15,39 @@ function clampDocText(text: string) {
   const head = text.slice(0, Math.floor(MAX_DOC_CHARS * 0.7));
   const tail = text.slice(-Math.floor(MAX_DOC_CHARS * 0.3));
   return `${head}\n\n[…content trimmed for length…]\n\n${tail}`;
+}
+
+function chunkText(text: string): string[] {
+  const paragraphs = text
+    .split(/\n{2,}/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+
+  const chunks: string[] = [];
+  let current = "";
+  let overlap = "";
+
+  for (const para of paragraphs) {
+    const candidate = overlap
+      ? `${overlap}\n\n${current}\n\n${para}`
+      : `${current}\n\n${para}`;
+
+    if (candidate.length > CHUNK_SIZE && current.length > 0) {
+      const chunk = (overlap ? `${overlap}\n\n${current}` : current).trim();
+      if (chunk.length > 50) chunks.push(chunk);
+      overlap = current.slice(-CHUNK_OVERLAP);
+      current = para;
+    } else {
+      current = candidate.trim();
+    }
+  }
+
+  if (current.trim().length > 50) {
+    const chunk = (overlap ? `${overlap}\n\n${current}` : current).trim();
+    chunks.push(chunk);
+  }
+
+  return chunks.length > 0 ? chunks : [text.slice(0, MAX_DOC_CHARS)];
 }
 
 router.post("/ai/extract-pdf", async (req, res) => {
@@ -30,11 +65,15 @@ router.post("/ai/extract-pdf", async (req, res) => {
       .replace(/[ \t]+\n/g, "\n")
       .replace(/\n{3,}/g, "\n\n")
       .trim();
+
+    const chunks = chunkText(cleaned);
+
     res.json({
       pages: totalPages ?? 0,
-      text: clampDocText(cleaned),
+      chunks,
       truncated: cleaned.length > MAX_DOC_CHARS,
       originalLength: cleaned.length,
+      chunkCount: chunks.length,
     });
   } catch (err) {
     req.log?.error({ err }, "extract-pdf failed");
@@ -45,26 +84,41 @@ router.post("/ai/extract-pdf", async (req, res) => {
 function buildRagMessages(body: {
   documentTitle?: string;
   documentNotes?: string;
+  retrievedChunks?: string[];
   documentText?: string;
   history?: unknown;
   question: string;
 }) {
+  const hasChunks =
+    Array.isArray(body.retrievedChunks) && body.retrievedChunks.length > 0;
   const hasDocText =
-    typeof body.documentText === "string" && body.documentText.trim().length > 0;
+    !hasChunks &&
+    typeof body.documentText === "string" &&
+    body.documentText.trim().length > 0;
+
+  let contextBlock: string;
+  if (hasChunks) {
+    const chunkText = body.retrievedChunks!
+      .map((c, i) => `[Passage ${i + 1}]\n${c}`)
+      .join("\n\n");
+    contextBlock = `--- RETRIEVED PASSAGES (most relevant to the question) ---\n${chunkText}\n--- END PASSAGES ---`;
+  } else if (hasDocText) {
+    contextBlock = `--- DOCUMENT TEXT ---\n${clampDocText(body.documentText!.trim())}\n--- END DOCUMENT ---`;
+  } else {
+    contextBlock =
+      "(No document text available — answer from general UPSC knowledge and flag as 'Outside the document'.)";
+  }
 
   const system = [
-    "You are PrepAssist Vault, an expert UPSC tutor that answers GROUNDED IN the source document below.",
-    `Document title: ${body.documentTitle ?? "Untitled"}`,
-    body.documentNotes ? `Aspirant's notes / context: ${body.documentNotes}` : "",
-    hasDocText
-      ? `--- BEGIN DOCUMENT ---\n${clampDocText(body.documentText!.trim())}\n--- END DOCUMENT ---`
-      : "(No document text available — fall back to general UPSC knowledge but flag answers as 'Outside the document'.)",
-    "Answering rules:",
-    "- Quote or paraphrase the document where possible. Cite section/topic headings if present.",
-    "- Be precise, structured and exam-ready (Mains-style).",
-    "- Use short headers and bullet points where useful.",
+    "You are PrepAssist Vault, an expert UPSC tutor.",
+    `Document: ${body.documentTitle ?? "Untitled"}`,
+    body.documentNotes ? `Context: ${body.documentNotes}` : "",
+    contextBlock,
+    "Rules:",
+    "- Base your answer PRIMARILY on the passages/document above. Quote or paraphrase where possible.",
     "- If the document does NOT cover the question, say so explicitly and provide a brief general UPSC-level answer flagged as 'Outside the document'.",
-    "- Reply in 120-260 words unless the aspirant asks for more.",
+    "- Be precise, structured, and exam-ready (Mains-style). Use short headers and bullets where useful.",
+    "- Reply in 120–260 words unless the aspirant asks for more.",
   ]
     .filter(Boolean)
     .join("\n");
@@ -95,8 +149,14 @@ function buildRagMessages(body: {
 
 router.post("/ai/rag", async (req, res) => {
   try {
-    const { documentTitle, documentNotes, documentText, history, question } =
-      req.body ?? {};
+    const {
+      documentTitle,
+      documentNotes,
+      retrievedChunks,
+      documentText,
+      history,
+      question,
+    } = req.body ?? {};
     if (typeof question !== "string" || !question.trim()) {
       res.status(400).json({ error: "question is required" });
       return;
@@ -108,6 +168,7 @@ router.post("/ai/rag", async (req, res) => {
       messages: buildRagMessages({
         documentTitle,
         documentNotes,
+        retrievedChunks,
         documentText,
         history,
         question,
@@ -124,8 +185,14 @@ router.post("/ai/rag", async (req, res) => {
 
 router.post("/ai/rag/stream", async (req, res) => {
   try {
-    const { documentTitle, documentNotes, documentText, history, question } =
-      req.body ?? {};
+    const {
+      documentTitle,
+      documentNotes,
+      retrievedChunks,
+      documentText,
+      history,
+      question,
+    } = req.body ?? {};
     if (typeof question !== "string" || !question.trim()) {
       res.status(400).json({ error: "question is required" });
       return;
@@ -143,6 +210,7 @@ router.post("/ai/rag/stream", async (req, res) => {
       messages: buildRagMessages({
         documentTitle,
         documentNotes,
+        retrievedChunks,
         documentText,
         history,
         question,
@@ -174,7 +242,8 @@ router.post("/ai/evaluate", async (req, res) => {
       res.status(400).json({ error: "imageBase64 is required" });
       return;
     }
-    const mt = typeof mimeType === "string" && mimeType ? mimeType : "image/jpeg";
+    const mt =
+      typeof mimeType === "string" && mimeType ? mimeType : "image/jpeg";
 
     const system = [
       "You are a senior UPSC Mains examiner. Grade the aspirant's handwritten answer captured in the photo.",
@@ -193,7 +262,9 @@ router.post("/ai/evaluate", async (req, res) => {
 
     const userText = [
       `Paper: ${paper ?? "GS"}`,
-      question ? `Question: ${question}` : "Infer the question from the script.",
+      question
+        ? `Question: ${question}`
+        : "Infer the question from the script.",
       "Grade the attached handwritten response.",
     ].join("\n");
 
@@ -234,7 +305,10 @@ router.post("/ai/quiz", async (req, res) => {
   try {
     const { topic, count } = req.body ?? {};
     const n = Math.max(1, Math.min(20, Number(count) || 5));
-    const t = typeof topic === "string" && topic.trim() ? topic.trim() : "Indian Polity";
+    const t =
+      typeof topic === "string" && topic.trim()
+        ? topic.trim()
+        : "Indian Polity";
 
     const system = [
       "You generate UPSC Prelims-grade MCQs.",
@@ -263,7 +337,9 @@ router.post("/ai/quiz", async (req, res) => {
     } catch {
       parsed = {};
     }
-    res.json({ questions: Array.isArray(parsed.questions) ? parsed.questions : [] });
+    res.json({
+      questions: Array.isArray(parsed.questions) ? parsed.questions : [],
+    });
   } catch (err) {
     req.log?.error({ err }, "quiz failed");
     res.status(500).json({ error: "quiz_failed" });

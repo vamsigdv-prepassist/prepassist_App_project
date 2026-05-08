@@ -31,6 +31,7 @@ export type RagParams = {
   question: string;
   documentTitle: string;
   documentNotes?: string;
+  retrievedChunks?: string[];
   documentText?: string;
   history?: RagHistoryItem[];
 };
@@ -40,17 +41,76 @@ export async function ragAnswer(params: RagParams): Promise<string> {
   return answer || "I couldn't generate a response. Please try again.";
 }
 
-export async function extractPdfText(pdfBase64: string): Promise<{
+export async function extractPdfChunks(pdfBase64: string): Promise<{
   pages: number;
-  text: string;
+  chunks: string[];
   truncated: boolean;
+  chunkCount: number;
 }> {
-  const { pages, text, truncated } = await callApi<{
+  const { pages, chunks, truncated, chunkCount } = await callApi<{
     pages: number;
-    text: string;
+    chunks: string[];
     truncated: boolean;
+    chunkCount: number;
   }>("/ai/extract-pdf", { pdfBase64 });
-  return { pages, text, truncated };
+  return {
+    pages,
+    chunks: Array.isArray(chunks) ? chunks : [],
+    truncated,
+    chunkCount: chunkCount ?? 0,
+  };
+}
+
+function tokenize(text: string): string[] {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter((t) => t.length > 1);
+}
+
+export function bm25Retrieve(
+  chunks: string[],
+  query: string,
+  k = 5,
+): string[] {
+  if (!chunks.length) return [];
+
+  const K1 = 1.5;
+  const B = 0.75;
+
+  const tokenizedChunks = chunks.map(tokenize);
+  const avgdl =
+    tokenizedChunks.reduce((s, t) => s + t.length, 0) / tokenizedChunks.length;
+  const N = chunks.length;
+
+  const queryTerms = [...new Set(tokenize(query))];
+
+  const idf: Record<string, number> = {};
+  for (const term of queryTerms) {
+    const df = tokenizedChunks.filter((c) => c.includes(term)).length;
+    idf[term] = Math.log((N - df + 0.5) / (df + 0.5) + 1);
+  }
+
+  const scored = chunks.map((chunk, i) => {
+    const tokens = tokenizedChunks[i]!;
+    const dl = tokens.length;
+    const tf: Record<string, number> = {};
+    for (const t of tokens) tf[t] = (tf[t] ?? 0) + 1;
+
+    let score = 0;
+    for (const term of queryTerms) {
+      const f = tf[term] ?? 0;
+      if (f === 0) continue;
+      score +=
+        (idf[term] ?? 0) *
+        ((f * (K1 + 1)) / (f + K1 * (1 - B + B * (dl / avgdl))));
+    }
+    return { chunk, score };
+  });
+
+  scored.sort((a, b) => b.score - a.score);
+  return scored.slice(0, k).map((s) => s.chunk);
 }
 
 export async function ragAnswerStream(

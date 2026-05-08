@@ -18,7 +18,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Pill } from "@/components/ui";
 import { useApp } from "@/contexts/AppContext";
 import { useColors } from "@/hooks/useColors";
-import { ragAnswerStream } from "@/lib/ai";
+import { bm25Retrieve, ragAnswerStream } from "@/lib/ai";
 
 const SUGGESTIONS = [
   "Summarise this in 5 points",
@@ -64,12 +64,16 @@ export default function VaultChatScreen() {
       text: "",
     });
     try {
+      let retrievedChunks: string[] | undefined;
+      if (doc.chunks && doc.chunks.length > 0) {
+        retrievedChunks = bm25Retrieve(doc.chunks, text, 5);
+      }
       await ragAnswerStream(
         {
           question: text,
           documentTitle: doc.title,
           documentNotes: `Subject: ${doc.subject}. Pages: ${doc.pages}.`,
-          documentText: doc.extractedText,
+          retrievedChunks,
           history,
         },
         (_delta, full) => {

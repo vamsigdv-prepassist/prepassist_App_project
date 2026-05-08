@@ -28,7 +28,7 @@ import {
 } from "@/components/ui";
 import { SUBJECT_PALETTE, useApp, type VaultDocument } from "@/contexts/AppContext";
 import { useColors } from "@/hooks/useColors";
-import { extractPdfText } from "@/lib/ai";
+import { extractPdfChunks } from "@/lib/ai";
 
 const SUBJECT_OPTIONS = [
   "Polity",
@@ -124,16 +124,19 @@ export default function VaultScreen() {
     }
     setIndexing(true);
     try {
-      const { pages, text, truncated } = await extractPdfText(picked.base64);
+      const { pages, chunks, truncated, chunkCount } = await extractPdfChunks(
+        picked.base64,
+      );
       const colorIdx = Math.floor(Math.random() * SUBJECT_PALETTE.length);
       addDocument({
         title: title.trim(),
         subject,
         pages: pages || 0,
         color: SUBJECT_PALETTE[colorIdx]!,
-        extractedText: text,
+        chunks,
         sourceFile: picked.name,
         truncated,
+        chunkCount: chunkCount || chunks.length,
       });
       if (Platform.OS !== "web")
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -293,7 +296,7 @@ export default function VaultScreen() {
                     >
                       · {item.pages} pages
                     </Text>
-                    {item.extractedText ? (
+                    {item.chunks && item.chunks.length > 0 ? (
                       <View
                         style={{
                           flexDirection: "row",
@@ -313,7 +316,7 @@ export default function VaultScreen() {
                             fontSize: 11,
                           }}
                         >
-                          Indexed
+                          {item.chunkCount ?? item.chunks.length} chunks
                         </Text>
                       </View>
                     ) : null}
