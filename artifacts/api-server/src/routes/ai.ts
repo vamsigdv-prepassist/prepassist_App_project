@@ -380,16 +380,100 @@ router.post("/ai/quiz", async (req, res) => {
   }
 });
 
+// Chunk text into ~5000-char paragraph-bounded segments for parallel MCQ extraction
+function chunkTextForQuiz(text: string): string[] {
+  const IDEAL = 5_000;
+  const paragraphs = text.split(/\n{2,}/);
+  const chunks: string[] = [];
+  let current = "";
+
+  for (const para of paragraphs) {
+    const candidate = current ? `${current}\n\n${para}` : para;
+    if (candidate.length > IDEAL && current.length > 0) {
+      if (current.trim().length > 30) chunks.push(current.trim());
+      current = para;
+    } else {
+      current = candidate;
+    }
+  }
+  if (current.trim().length > 30) chunks.push(current.trim());
+
+  return chunks.length > 0 ? chunks : [text.slice(0, 50_000)];
+}
+
+type RawMcq = {
+  question?: string;
+  options?: string[];
+  correctIndex?: number;
+  explanation?: string;
+  topic?: string;
+};
+
+async function extractMcqsFromChunk(
+  chunkText: string,
+  chunkIdx: number,
+  openaiClient: typeof openai,
+  log: { info: (...a: unknown[]) => void; error: (...a: unknown[]) => void },
+): Promise<RawMcq[]> {
+  const system = [
+    "You are a senior UPSC Prelims question analyst.",
+    "Your ONLY job: extract every MCQ you can find in the given text segment.",
+    "Return STRICT JSON ONLY — no markdown, no prose — matching exactly:",
+    '{ "questions": [ { "question": "...", "options": ["A text","B text","C text","D text"], "correctIndex": 0, "explanation": "...", "topic": "..." } ] }',
+    "",
+    "Extraction rules:",
+    "1. Scan for numbered/lettered MCQs (e.g. '1.', 'Q1.', '1)') with 4 options (A/B/C/D or (a)/(b)/(c)/(d) or 1/2/3/4).",
+    "2. Extract the FULL question text faithfully, including any statements (keep newlines as \\n).",
+    "3. options[] MUST have exactly 4 strings — the plain text of each option (no letter prefix).",
+    "4. correctIndex is 0-based: 0=first option, 1=second, 2=third, 3=fourth.",
+    "5. Determine correctIndex from an answer key in the text; if none, reason from UPSC syllabus.",
+    "6. explanation: one clear sentence explaining why the correct answer is right.",
+    "7. topic: specific UPSC subtopic (e.g. 'Polity — Fundamental Rights').",
+    "8. For bilingual PDFs, extract English text only. Skip duplicate Hindi versions.",
+    "9. If NO MCQs exist in this segment, return { \"questions\": [] } — do NOT hallucinate questions.",
+  ].join("\n");
+
+  try {
+    const response = await openaiClient.chat.completions.create({
+      model: MODEL,
+      max_completion_tokens: 4_000,
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: system },
+        {
+          role: "user",
+          content: `Extract every MCQ from this text segment:\n\n${chunkText}`,
+        },
+      ],
+    });
+
+    const raw = response.choices[0]?.message?.content?.trim() ?? "{}";
+    let parsed: { questions?: unknown[] } = {};
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      parsed = {};
+    }
+    const qs = Array.isArray(parsed.questions) ? (parsed.questions as RawMcq[]) : [];
+    log.info({ chunk: chunkIdx, found: qs.length }, "extract-quiz: chunk done");
+    return qs;
+  } catch (err) {
+    log.error({ err, chunk: chunkIdx }, "extract-quiz: chunk failed");
+    return [];
+  }
+}
+
 router.post("/ai/extract-quiz", async (req, res) => {
   try {
-    const { pdfBase64, count } = req.body ?? {};
-    const n = Math.max(5, Math.min(50, Number(count) || 15));
+    const { pdfBase64, maxQuestions } = req.body ?? {};
+    const cap = Math.max(10, Math.min(200, Number(maxQuestions) || 100));
 
     if (typeof pdfBase64 !== "string" || !pdfBase64) {
       res.status(400).json({ error: "pdfBase64 is required" });
       return;
     }
 
+    // ── 1. Extract full text from PDF ──────────────────────────────────────
     const buf = Buffer.from(pdfBase64, "base64");
     const bytes = new Uint8Array(buf);
     const doc = await getDocumentProxy(bytes);
@@ -407,52 +491,77 @@ router.post("/ai/extract-quiz", async (req, res) => {
       return;
     }
 
-    req.log?.info({ pages: totalPages, chars: cleaned.length }, "extract-quiz: PDF parsed");
+    req.log?.info(
+      { pages: totalPages, chars: cleaned.length },
+      "extract-quiz: PDF parsed",
+    );
 
-    // Cap at 40k chars to keep prompt manageable
-    const docText = cleaned.length > 40_000 ? cleaned.slice(0, 40_000) : cleaned;
+    // ── 2. Chunk text into ~5 000-char paragraph-bounded segments ──────────
+    const chunks = chunkTextForQuiz(cleaned);
+    req.log?.info({ chunks: chunks.length }, "extract-quiz: chunked");
 
-    const system = [
-      "You are a senior UPSC Prelims expert and exam analyst.",
-      "Your task: extract or generate MCQs from the provided PDF text.",
-      "Return STRICT JSON ONLY — no markdown fences, no prose — matching exactly:",
-      '{ "questions": [ { "id": "q1", "question": "...", "options": ["A","B","C","D"], "correctIndex": 0, "explanation": "...", "topic": "..." } ] }',
-      "",
-      "Extraction rules:",
-      "1. FIRST scan the text for existing MCQs (numbered questions with A/B/C/D options). Extract them faithfully.",
-      "2. Determine the correct answer: if an answer key is present use it; otherwise reason it out from UPSC syllabus knowledge.",
-      "3. If the PDF has fewer than the requested count of MCQs, supplement with freshly generated UPSC Prelims MCQs on the topics covered in the document.",
-      "4. ALWAYS produce exactly 4 options per question (options array length = 4).",
-      "5. correctIndex is 0-based (0=first option, 1=second, etc.).",
-      "6. Each explanation must clearly state WHY the correct answer is right and why the others are wrong.",
-      "7. Set topic to the specific UPSC subject/subtopic (e.g. 'Polity — Fundamental Rights', 'History — Quit India Movement').",
-      "8. For bilingual PDFs, extract the English version only.",
-    ].join("\n");
+    // ── 3. Process all chunks in parallel batches of 3 ────────────────────
+    const log = {
+      info: (...a: unknown[]) => req.log?.info(...(a as [object, string])),
+      error: (...a: unknown[]) => req.log?.error(...(a as [object, string])),
+    };
 
-    const userPrompt = `Extract or generate exactly ${n} UPSC Prelims MCQs from the document below. Use ids q1..q${n}.\n\n--- DOCUMENT TEXT (${totalPages} pages) ---\n${docText}\n--- END ---`;
+    const BATCH_SIZE = 3;
+    const allRaw: RawMcq[] = [];
 
-    const response = await openai.chat.completions.create({
-      model: MODEL,
-      max_completion_tokens: 8000,
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: userPrompt },
-      ],
-    });
+    for (let i = 0; i < chunks.length; i += BATCH_SIZE) {
+      const batch = chunks.slice(i, i + BATCH_SIZE);
+      const batchResults = await Promise.all(
+        batch.map((chunk, j) =>
+          extractMcqsFromChunk(chunk, i + j, openai, log),
+        ),
+      );
+      allRaw.push(...batchResults.flat());
 
-    const raw = response.choices[0]?.message?.content?.trim() ?? "{}";
-    let parsed: { questions?: unknown[] } = {};
-    try {
-      parsed = JSON.parse(raw);
-    } catch {
-      parsed = {};
+      // Brief cooldown between batches to avoid rate-limit drops
+      if (i + BATCH_SIZE < chunks.length) {
+        await new Promise((r) => setTimeout(r, 1_200));
+      }
     }
 
-    const questions = Array.isArray(parsed.questions) ? parsed.questions : [];
-    req.log?.info({ extracted: questions.length }, "extract-quiz: done");
+    // ── 4. Validate, deduplicate and cap ──────────────────────────────────
+    const seen = new Set<string>();
+    const questions = allRaw
+      .filter(
+        (q) =>
+          typeof q.question === "string" &&
+          q.question.trim().length > 10 &&
+          Array.isArray(q.options) &&
+          q.options.length === 4 &&
+          typeof q.correctIndex === "number",
+      )
+      .filter((q) => {
+        // Deduplicate by first 60 chars of question text
+        const key = q
+          .question!.slice(0, 60)
+          .toLowerCase()
+          .replace(/\s+/g, " ")
+          .trim();
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .map((q, i) => ({
+        id: `q${i + 1}`,
+        question: q.question!.trim(),
+        options: (q.options as string[]).map((o) => String(o).trim()),
+        correctIndex: Math.max(0, Math.min(3, q.correctIndex!)),
+        explanation: typeof q.explanation === "string" ? q.explanation.trim() : "",
+        topic: typeof q.topic === "string" ? q.topic.trim() : "General",
+      }))
+      .slice(0, cap);
 
-    res.json({ questions });
+    req.log?.info(
+      { total: allRaw.length, deduped: questions.length, cap },
+      "extract-quiz: complete",
+    );
+
+    res.json({ questions, meta: { pages: totalPages, chunks: chunks.length } });
   } catch (err) {
     req.log?.error({ err }, "extract-quiz failed");
     res.status(500).json({ error: "extract_quiz_failed" });

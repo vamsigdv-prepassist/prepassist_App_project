@@ -20,7 +20,7 @@ import { useApp } from "@/contexts/AppContext";
 import { useColors } from "@/hooks/useColors";
 import { extractQuizFromPdf } from "@/lib/ai";
 
-const COUNTS = [10, 20, 30];
+const MAX_OPTIONS = [50, 100, 150] as const;
 
 const UPSC_TIPS = [
   "Strategy: Link static concepts with dynamic current affairs for GS success.",
@@ -31,6 +31,8 @@ const UPSC_TIPS = [
   "Every wrong answer in practice is one less mistake in the actual exam.",
   "Analytical Insight: Study WHY wrong options are wrong, not just the correct one.",
   "UPSC rewards precision — a single word in the question can flip the answer.",
+  "PDF is being chunked and processed in parallel — every page is being scanned.",
+  "Questions near the end of the PDF are being extracted too, not just the first page.",
 ];
 
 export default function PdfQuizScreen() {
@@ -43,7 +45,7 @@ export default function PdfQuizScreen() {
   const [pdfName, setPdfName] = useState<string | null>(null);
   const [pdfBase64, setPdfBase64] = useState<string | null>(null);
   const [pdfSize, setPdfSize] = useState<number>(0);
-  const [count, setCount] = useState(15);
+  const [maxQuestions, setMaxQuestions] = useState<(typeof MAX_OPTIONS)[number]>(100);
   const [processing, setProcessing] = useState(false);
   const [tipIndex, setTipIndex] = useState(0);
   const tipTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -53,7 +55,7 @@ export default function PdfQuizScreen() {
       setTipIndex(0);
       tipTimerRef.current = setInterval(() => {
         setTipIndex((i) => (i + 1) % UPSC_TIPS.length);
-      }, 3500);
+      }, 3_500);
     } else {
       if (tipTimerRef.current) {
         clearInterval(tipTimerRef.current);
@@ -73,10 +75,6 @@ export default function PdfQuizScreen() {
       });
       if (result.canceled || !result.assets?.length) return;
       const asset = result.assets[0]!;
-      if (!FileSystem.readAsStringAsync) {
-        Alert.alert("Not supported", "PDF picking is not supported on web.");
-        return;
-      }
       const base64 = await FileSystem.readAsStringAsync(asset.uri, {
         encoding: FileSystem.EncodingType.Base64,
       });
@@ -92,11 +90,11 @@ export default function PdfQuizScreen() {
     if (!pdfBase64) return;
     setProcessing(true);
     try {
-      const questions = await extractQuizFromPdf(pdfBase64, count);
+      const questions = await extractQuizFromPdf(pdfBase64, maxQuestions);
       if (!questions.length) {
         Alert.alert(
           "No questions found",
-          "The AI couldn't extract MCQs from this PDF. Make sure it contains text-based content (not a scanned image).",
+          "The AI couldn't find any MCQs in this PDF. Make sure it contains text-based questions (not a scanned image).",
         );
         return;
       }
@@ -175,7 +173,7 @@ export default function PdfQuizScreen() {
               marginTop: 1,
             }}
           >
-            Upload a test series paper to start a quiz instantly
+            Scans every page — extracts all MCQs in parallel
           </Text>
         </View>
       </View>
@@ -216,7 +214,7 @@ export default function PdfQuizScreen() {
                 textAlign: "center",
               }}
             >
-              Analysing your PDF…
+              Scanning all pages…
             </Text>
             <Text
               style={{
@@ -224,14 +222,53 @@ export default function PdfQuizScreen() {
                 fontFamily: "Inter_500Medium",
                 fontSize: 14,
                 textAlign: "center",
-                marginBottom: 32,
+                marginBottom: 12,
                 lineHeight: 21,
                 maxWidth: 300,
               }}
             >
-              Extracting MCQs and building your quiz session. This usually
-              takes 15–30 seconds.
+              The PDF is being chunked and each section processed in parallel.
+              Every question — from page 1 to the last page — will be captured.
             </Text>
+
+            {/* Live status pills */}
+            <View
+              style={{
+                flexDirection: "row",
+                gap: 8,
+                marginBottom: 28,
+                flexWrap: "wrap",
+                justifyContent: "center",
+              }}
+            >
+              {["Extracting text", "Chunking pages", "Running AI in parallel", "Deduplicating"].map(
+                (step) => (
+                  <View
+                    key={step}
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 5,
+                      backgroundColor: colors.primary + "12",
+                      borderRadius: 999,
+                      paddingHorizontal: 10,
+                      paddingVertical: 5,
+                    }}
+                  >
+                    <ActivityIndicator color={colors.primary} size="small" style={{ transform: [{ scale: 0.6 }] }} />
+                    <Text
+                      style={{
+                        color: colors.primary,
+                        fontFamily: "Inter_600SemiBold",
+                        fontSize: 11,
+                      }}
+                    >
+                      {step}
+                    </Text>
+                  </View>
+                ),
+              )}
+            </View>
 
             {/* Rotating UPSC tip */}
             <Card>
@@ -275,6 +312,19 @@ export default function PdfQuizScreen() {
                 </View>
               </View>
             </Card>
+
+            <Text
+              style={{
+                color: colors.mutedForeground,
+                fontFamily: "Inter_400Regular",
+                fontSize: 12,
+                marginTop: 20,
+                textAlign: "center",
+              }}
+            >
+              This may take 30–60 seconds for large question papers.{"\n"}Please
+              keep the app open.
+            </Text>
           </View>
         ) : (
           /* ── Upload state ── */
@@ -303,7 +353,7 @@ export default function PdfQuizScreen() {
                       marginBottom: 5,
                     }}
                   >
-                    How it works
+                    Full-paper extraction
                   </Text>
                   <Text
                     style={{
@@ -313,10 +363,9 @@ export default function PdfQuizScreen() {
                       lineHeight: 19,
                     }}
                   >
-                    Upload any test series PDF or question bank. The AI reads
-                    the document, extracts existing MCQs (or generates UPSC-grade
-                    ones from the content), and launches a full quiz session with
-                    explanations for every answer.
+                    The PDF is chunked page-by-page and each chunk is processed
+                    in parallel — so all 100 questions (or however many the paper
+                    has) are captured, not just those on the first few pages.
                   </Text>
                 </View>
               </View>
@@ -414,32 +463,43 @@ export default function PdfQuizScreen() {
                         maxWidth: 260,
                       }}
                     >
-                      Test series papers, question banks, previous year papers
+                      Test series papers · Question banks · Previous year papers
                     </Text>
                   </>
                 )}
               </View>
             </Pressable>
 
-            {/* Count picker */}
+            {/* Max questions cap */}
             <Text
               style={{
                 color: colors.mutedForeground,
                 fontFamily: "Inter_600SemiBold",
                 fontSize: 11,
                 letterSpacing: 0.6,
-                marginBottom: 8,
+                marginBottom: 4,
               }}
             >
-              MAX QUESTIONS TO EXTRACT
+              MAX QUESTIONS CAP
+            </Text>
+            <Text
+              style={{
+                color: colors.mutedForeground,
+                fontFamily: "Inter_400Regular",
+                fontSize: 12,
+                marginBottom: 10,
+              }}
+            >
+              All questions found in the PDF will be extracted — cap only limits
+              the final count.
             </Text>
             <View style={{ flexDirection: "row", gap: 8, marginBottom: 20 }}>
-              {COUNTS.map((c) => {
-                const active = count === c;
+              {MAX_OPTIONS.map((cap) => {
+                const active = maxQuestions === cap;
                 return (
                   <Pressable
-                    key={c}
-                    onPress={() => setCount(c)}
+                    key={cap}
+                    onPress={() => setMaxQuestions(cap)}
                     style={{
                       flex: 1,
                       paddingVertical: 14,
@@ -457,7 +517,7 @@ export default function PdfQuizScreen() {
                         fontSize: 20,
                       }}
                     >
-                      {c}
+                      {cap === 150 ? "All" : cap}
                     </Text>
                     <Text
                       style={{
@@ -467,7 +527,7 @@ export default function PdfQuizScreen() {
                         marginTop: 2,
                       }}
                     >
-                      questions
+                      {cap === 150 ? "up to 150" : "questions"}
                     </Text>
                   </Pressable>
                 );
@@ -497,9 +557,10 @@ export default function PdfQuizScreen() {
                 Tips for best results
               </Text>
               {[
-                "Use text-based PDFs — scanned images or photos of papers are not supported.",
-                "Question banks and previous year papers work best.",
-                "Bilingual PDFs: the AI automatically extracts the English version only.",
+                "Use text-based PDFs — scanned images or camera photos of papers won't work.",
+                "Both digital question banks and copy-pasted test series papers work well.",
+                "Bilingual PDFs: the AI automatically isolates and extracts the English version.",
+                "Answer keys at the end of the PDF are detected and used automatically.",
               ].map((tip, i) => (
                 <View key={i} style={{ flexDirection: "row", gap: 8, alignItems: "flex-start" }}>
                   <View
@@ -539,7 +600,7 @@ export default function PdfQuizScreen() {
             </View>
 
             <GradientButton
-              label={pdfBase64 ? "Extract & Start Quiz" : "Select a PDF first"}
+              label={pdfBase64 ? "Extract All Questions" : "Select a PDF first"}
               icon="zap"
               onPress={handleExtract}
               disabled={!pdfBase64}

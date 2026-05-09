@@ -361,7 +361,7 @@ export async function generateQuiz(
 
 export async function extractQuizFromPdf(
   pdfBase64: string,
-  count: number = 15,
+  maxQuestions: number = 100,
 ): Promise<QuizQuestion[]> {
   const { questions } = await callApi<{
     questions: {
@@ -372,7 +372,7 @@ export async function extractQuizFromPdf(
       explanation?: string;
       topic?: string;
     }[];
-  }>("/ai/extract-quiz", { pdfBase64, count });
+  }>("/ai/extract-quiz", { pdfBase64, maxQuestions });
 
   return (questions ?? [])
     .filter(
