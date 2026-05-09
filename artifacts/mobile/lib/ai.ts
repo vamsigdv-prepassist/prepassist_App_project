@@ -359,6 +359,39 @@ export async function generateQuiz(
     }));
 }
 
+export async function extractQuizFromPdf(
+  pdfBase64: string,
+  count: number = 15,
+): Promise<QuizQuestion[]> {
+  const { questions } = await callApi<{
+    questions: {
+      id?: string;
+      question?: string;
+      options?: string[];
+      correctIndex?: number;
+      explanation?: string;
+      topic?: string;
+    }[];
+  }>("/ai/extract-quiz", { pdfBase64, count });
+
+  return (questions ?? [])
+    .filter(
+      (q) =>
+        typeof q.question === "string" &&
+        Array.isArray(q.options) &&
+        q.options.length === 4 &&
+        typeof q.correctIndex === "number",
+    )
+    .map((q) => ({
+      id: q.id || uid(),
+      prompt: q.question!,
+      options: q.options!,
+      correctIndex: Math.max(0, Math.min(3, q.correctIndex!)),
+      explanation: q.explanation || "",
+      subtopic: typeof q.topic === "string" ? q.topic : undefined,
+    }));
+}
+
 export function pickRandomTopic() {
   const topics = [
     "Polity — Fundamental Rights",

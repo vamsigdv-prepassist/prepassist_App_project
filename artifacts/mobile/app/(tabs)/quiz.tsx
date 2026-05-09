@@ -365,6 +365,104 @@ export default function QuizScreen() {
           </Card>
         </View>
 
+        {/* PDF upload card */}
+        <View style={{ paddingHorizontal: 20, marginTop: 24 }}>
+          <SectionHeader
+            title="Test series PDF"
+            subtitle="Extract MCQs directly from any uploaded paper"
+          />
+          <Pressable
+            onPress={() => router.push("/pdf-quiz" as never)}
+            style={({ pressed }) => ({
+              transform: pressed ? [{ scale: 0.99 }] : [],
+            })}
+          >
+            <View
+              style={{
+                borderRadius: 20,
+                overflow: "hidden",
+                borderWidth: 1,
+                borderColor: colors.primary + "30",
+                backgroundColor: colors.card,
+              }}
+            >
+              {/* Gradient accent strip */}
+              <View
+                style={{
+                  height: 4,
+                  backgroundColor: colors.primary,
+                  opacity: 0.7,
+                }}
+              />
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 14,
+                  padding: 16,
+                }}
+              >
+                <View
+                  style={{
+                    width: 48,
+                    height: 48,
+                    borderRadius: 14,
+                    backgroundColor: colors.primary + "15",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  <Feather name="upload-cloud" size={22} color={colors.primary} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text
+                    style={{
+                      color: colors.foreground,
+                      fontFamily: "Inter_700Bold",
+                      fontSize: 15,
+                      letterSpacing: -0.2,
+                    }}
+                  >
+                    Upload PDF
+                  </Text>
+                  <Text
+                    style={{
+                      color: colors.mutedForeground,
+                      fontFamily: "Inter_400Regular",
+                      fontSize: 13,
+                      marginTop: 2,
+                    }}
+                  >
+                    Previous years · Question banks · Test series
+                  </Text>
+                </View>
+                <View
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 4,
+                    backgroundColor: colors.primary,
+                    borderRadius: 10,
+                    paddingHorizontal: 12,
+                    paddingVertical: 8,
+                  }}
+                >
+                  <Feather name="zap" size={13} color="#fff" />
+                  <Text
+                    style={{
+                      color: "#fff",
+                      fontFamily: "Inter_700Bold",
+                      fontSize: 12,
+                    }}
+                  >
+                    Extract
+                  </Text>
+                </View>
+              </View>
+            </View>
+          </Pressable>
+        </View>
+
         {/* Presets */}
         <View style={{ paddingHorizontal: 20, marginTop: 24 }}>
           <SectionHeader title="Quick drills" />

@@ -380,4 +380,83 @@ router.post("/ai/quiz", async (req, res) => {
   }
 });
 
+router.post("/ai/extract-quiz", async (req, res) => {
+  try {
+    const { pdfBase64, count } = req.body ?? {};
+    const n = Math.max(5, Math.min(50, Number(count) || 15));
+
+    if (typeof pdfBase64 !== "string" || !pdfBase64) {
+      res.status(400).json({ error: "pdfBase64 is required" });
+      return;
+    }
+
+    const buf = Buffer.from(pdfBase64, "base64");
+    const bytes = new Uint8Array(buf);
+    const doc = await getDocumentProxy(bytes);
+    const { totalPages, text } = await extractText(doc, { mergePages: true });
+    const cleaned = (Array.isArray(text) ? text.join("\n\n") : text)
+      .replace(/[ \t]+\n/g, "\n")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+
+    if (cleaned.length < 50) {
+      res.status(400).json({
+        error:
+          "PDF appears to be empty or image-only (no extractable text). Please use a text-based PDF.",
+      });
+      return;
+    }
+
+    req.log?.info({ pages: totalPages, chars: cleaned.length }, "extract-quiz: PDF parsed");
+
+    // Cap at 40k chars to keep prompt manageable
+    const docText = cleaned.length > 40_000 ? cleaned.slice(0, 40_000) : cleaned;
+
+    const system = [
+      "You are a senior UPSC Prelims expert and exam analyst.",
+      "Your task: extract or generate MCQs from the provided PDF text.",
+      "Return STRICT JSON ONLY — no markdown fences, no prose — matching exactly:",
+      '{ "questions": [ { "id": "q1", "question": "...", "options": ["A","B","C","D"], "correctIndex": 0, "explanation": "...", "topic": "..." } ] }',
+      "",
+      "Extraction rules:",
+      "1. FIRST scan the text for existing MCQs (numbered questions with A/B/C/D options). Extract them faithfully.",
+      "2. Determine the correct answer: if an answer key is present use it; otherwise reason it out from UPSC syllabus knowledge.",
+      "3. If the PDF has fewer than the requested count of MCQs, supplement with freshly generated UPSC Prelims MCQs on the topics covered in the document.",
+      "4. ALWAYS produce exactly 4 options per question (options array length = 4).",
+      "5. correctIndex is 0-based (0=first option, 1=second, etc.).",
+      "6. Each explanation must clearly state WHY the correct answer is right and why the others are wrong.",
+      "7. Set topic to the specific UPSC subject/subtopic (e.g. 'Polity — Fundamental Rights', 'History — Quit India Movement').",
+      "8. For bilingual PDFs, extract the English version only.",
+    ].join("\n");
+
+    const userPrompt = `Extract or generate exactly ${n} UPSC Prelims MCQs from the document below. Use ids q1..q${n}.\n\n--- DOCUMENT TEXT (${totalPages} pages) ---\n${docText}\n--- END ---`;
+
+    const response = await openai.chat.completions.create({
+      model: MODEL,
+      max_completion_tokens: 8000,
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: userPrompt },
+      ],
+    });
+
+    const raw = response.choices[0]?.message?.content?.trim() ?? "{}";
+    let parsed: { questions?: unknown[] } = {};
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      parsed = {};
+    }
+
+    const questions = Array.isArray(parsed.questions) ? parsed.questions : [];
+    req.log?.info({ extracted: questions.length }, "extract-quiz: done");
+
+    res.json({ questions });
+  } catch (err) {
+    req.log?.error({ err }, "extract-quiz failed");
+    res.status(500).json({ error: "extract_quiz_failed" });
+  }
+});
+
 export default router;

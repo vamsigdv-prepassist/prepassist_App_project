@@ -65,6 +65,13 @@ function RootLayoutNav() {
           },
         }}
       />
+      <Stack.Screen
+        name="pdf-quiz"
+        options={{
+          headerShown: false,
+          presentation: "card",
+        }}
+      />
     </Stack>
   );
 }
