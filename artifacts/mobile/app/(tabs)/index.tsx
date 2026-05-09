@@ -16,6 +16,8 @@ import { Card, Pill, ProgressBar, SectionHeader } from "@/components/ui";
 import { useApp } from "@/contexts/AppContext";
 import { useColors } from "@/hooks/useColors";
 
+const DAY_LABELS = ["M", "T", "W", "T", "F", "S", "S"];
+
 const QUICK_ACTIONS = [
   {
     id: "vault",
@@ -121,6 +123,82 @@ export default function HomeScreen() {
     }));
   }, [streakDays]);
 
+  const calendarData = useMemo(() => {
+    // Collect activity counts per ISO date
+    const counts: Record<string, number> = {};
+    evaluations.forEach((e) => {
+      const day = new Date(e.createdAt).toISOString().slice(0, 10);
+      counts[day] = (counts[day] ?? 0) + 1;
+    });
+    quizzes.filter((q) => q.completed).forEach((q) => {
+      const day = new Date(q.createdAt).toISOString().slice(0, 10);
+      counts[day] = (counts[day] ?? 0) + 1;
+    });
+
+    // Build 28 calendar days ending today
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    // Align grid: step back so we start on a Monday
+    // Find how many extra days to prepend so the grid starts on Monday
+    // We want 4 complete Mon–Sun rows (28 cells), ending on the last Sunday >= today
+    // But simpler: just show the last 28 days, offset so column 0 = Monday
+    // Compute how many days back to go to hit the Monday that starts the 4-week window
+    const dayOfWeek = (today.getDay() + 6) % 7; // 0=Mon ... 6=Sun
+    // gridStart = 27 days before today, then adjust back to nearest Monday
+    const gridStart = new Date(today);
+    gridStart.setDate(today.getDate() - 27 - dayOfWeek);
+    const totalCells = 28 + dayOfWeek; // might be > 28 to align
+
+    const cells: { key: string; dateNum: number; count: number; isToday: boolean; isFuture: boolean }[] = [];
+    for (let i = 0; i < totalCells; i++) {
+      const d = new Date(gridStart);
+      d.setDate(gridStart.getDate() + i);
+      const key = d.toISOString().slice(0, 10);
+      const todayKey = today.toISOString().slice(0, 10);
+      cells.push({
+        key,
+        dateNum: d.getDate(),
+        count: counts[key] ?? 0,
+        isToday: key === todayKey,
+        isFuture: d > today,
+      });
+    }
+
+    // Pad to full rows of 7
+    const rows: (typeof cells[0] | null)[][] = [];
+    for (let r = 0; r < Math.ceil(cells.length / 7); r++) {
+      rows.push(cells.slice(r * 7, r * 7 + 7));
+    }
+
+    // Compute consecutive streak (from today backwards)
+    const todayKey = today.toISOString().slice(0, 10);
+    let streak = 0;
+    const hasToday = counts[todayKey];
+    const startOffset = hasToday ? 0 : 1;
+    for (let i = startOffset; i < 365; i++) {
+      const d = new Date(today);
+      d.setDate(today.getDate() - i);
+      const k = d.toISOString().slice(0, 10);
+      if (counts[k]) {
+        streak++;
+      } else {
+        break;
+      }
+    }
+
+    // Month labels for each row (show when month changes)
+    const rowMonths = rows.map((row) => {
+      const firstCell = row.find((c) => c !== null);
+      if (!firstCell) return "";
+      const d = new Date(firstCell.key);
+      return d.toLocaleString("default", { month: "short" });
+    });
+
+    const totalActive = Object.keys(counts).length;
+
+    return { rows, streak, rowMonths, totalActive };
+  }, [evaluations, quizzes]);
+
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
       <ScrollView
@@ -214,6 +292,214 @@ export default function HomeScreen() {
               />
             </View>
           </LinearGradient>
+        </View>
+
+        {/* Streak calendar */}
+        <View style={{ paddingHorizontal: 20, marginTop: 24 }}>
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "space-between",
+              marginBottom: 12,
+            }}
+          >
+            <View>
+              <Text
+                style={{
+                  color: colors.foreground,
+                  fontFamily: "Inter_700Bold",
+                  fontSize: 16,
+                  letterSpacing: -0.3,
+                }}
+              >
+                Study streak
+              </Text>
+              <Text
+                style={{
+                  color: colors.mutedForeground,
+                  fontFamily: "Inter_400Regular",
+                  fontSize: 12,
+                  marginTop: 1,
+                }}
+              >
+                {calendarData.totalActive > 0
+                  ? `${calendarData.totalActive} active ${calendarData.totalActive === 1 ? "day" : "days"} in this period`
+                  : "Complete a quiz or evaluation to start"}
+              </Text>
+            </View>
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 5,
+                backgroundColor:
+                  calendarData.streak > 0
+                    ? colors.primary + "15"
+                    : colors.secondary,
+                paddingHorizontal: 12,
+                paddingVertical: 7,
+                borderRadius: 999,
+                borderWidth: 1,
+                borderColor:
+                  calendarData.streak > 0
+                    ? colors.primary + "30"
+                    : "transparent",
+              }}
+            >
+              <Feather
+                name="zap"
+                size={13}
+                color={
+                  calendarData.streak > 0 ? colors.primary : colors.mutedForeground
+                }
+              />
+              <Text
+                style={{
+                  color:
+                    calendarData.streak > 0
+                      ? colors.primary
+                      : colors.mutedForeground,
+                  fontFamily: "Inter_700Bold",
+                  fontSize: 13,
+                }}
+              >
+                {calendarData.streak > 0
+                  ? `${calendarData.streak}d streak`
+                  : "No streak yet"}
+              </Text>
+            </View>
+          </View>
+
+          <Card>
+            {/* Day-of-week header */}
+            <View
+              style={{
+                flexDirection: "row",
+                justifyContent: "space-between",
+                marginBottom: 6,
+                paddingHorizontal: 2,
+              }}
+            >
+              {DAY_LABELS.map((d, i) => (
+                <Text
+                  key={i}
+                  style={{
+                    flex: 1,
+                    textAlign: "center",
+                    color: colors.mutedForeground,
+                    fontFamily: "Inter_600SemiBold",
+                    fontSize: 10,
+                    letterSpacing: 0.3,
+                  }}
+                >
+                  {d}
+                </Text>
+              ))}
+            </View>
+
+            {/* Calendar grid rows */}
+            <View style={{ gap: 5 }}>
+              {calendarData.rows.map((row, ri) => (
+                <View
+                  key={ri}
+                  style={{
+                    flexDirection: "row",
+                    justifyContent: "space-between",
+                    gap: 5,
+                  }}
+                >
+                  {row.map((cell, ci) =>
+                    cell === null ? (
+                      <View key={ci} style={{ flex: 1 }} />
+                    ) : (
+                      <View
+                        key={cell.key}
+                        style={{
+                          flex: 1,
+                          aspectRatio: 1,
+                          borderRadius: 7,
+                          backgroundColor: cell.isFuture
+                            ? "transparent"
+                            : cell.count === 0
+                              ? colors.secondary
+                              : cell.count === 1
+                                ? colors.primary + "45"
+                                : cell.count === 2
+                                  ? colors.primary + "80"
+                                  : colors.primary,
+                          borderWidth: cell.isToday ? 2 : 0,
+                          borderColor: cell.isToday
+                            ? colors.primary
+                            : "transparent",
+                          alignItems: "center",
+                          justifyContent: "center",
+                        }}
+                      >
+                        {cell.isToday && (
+                          <View
+                            style={{
+                              width: 4,
+                              height: 4,
+                              borderRadius: 2,
+                              backgroundColor:
+                                cell.count > 0 ? "#fff" : colors.primary,
+                            }}
+                          />
+                        )}
+                      </View>
+                    ),
+                  )}
+                </View>
+              ))}
+            </View>
+
+            {/* Legend */}
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "flex-end",
+                gap: 5,
+                marginTop: 12,
+                paddingTop: 10,
+                borderTopWidth: 1,
+                borderTopColor: colors.border,
+              }}
+            >
+              <Text
+                style={{
+                  color: colors.mutedForeground,
+                  fontFamily: "Inter_500Medium",
+                  fontSize: 10,
+                }}
+              >
+                Less
+              </Text>
+              {[colors.secondary, colors.primary + "45", colors.primary + "80", colors.primary].map(
+                (bg, i) => (
+                  <View
+                    key={i}
+                    style={{
+                      width: 12,
+                      height: 12,
+                      borderRadius: 3,
+                      backgroundColor: bg,
+                    }}
+                  />
+                ),
+              )}
+              <Text
+                style={{
+                  color: colors.mutedForeground,
+                  fontFamily: "Inter_500Medium",
+                  fontSize: 10,
+                }}
+              >
+                More
+              </Text>
+            </View>
+          </Card>
         </View>
 
         {/* Quick actions */}
