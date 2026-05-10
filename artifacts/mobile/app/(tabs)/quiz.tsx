@@ -1,7 +1,7 @@
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useRouter } from "expo-router";
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -165,6 +165,8 @@ function WeakAreaTeaser({
   );
 }
 
+const DAY_LABELS = ["M", "T", "W", "T", "F", "S", "S"];
+
 const PRESET_TOPICS = [
   { name: "Polity", icon: "shield" as const, color: "#4F39F6" },
   { name: "History", icon: "book" as const, color: "#06B6D4" },
@@ -180,7 +182,7 @@ export default function QuizScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const isWeb = Platform.OS === "web";
-  const { quizzes, addQuiz, documents } = useApp();
+  const { quizzes, addQuiz, documents, evaluations } = useApp();
 
   const [topic, setTopic] = useState("");
   const [count, setCount] = useState(10);
@@ -263,6 +265,51 @@ export default function QuizScreen() {
   };
 
   const completed = quizzes.filter((q) => q.completed);
+
+  const calendarData = useMemo(() => {
+    const counts: Record<string, number> = {};
+    evaluations.forEach((e) => {
+      const day = new Date(e.createdAt).toISOString().slice(0, 10);
+      counts[day] = (counts[day] ?? 0) + 1;
+    });
+    quizzes.filter((q) => q.completed).forEach((q) => {
+      const day = new Date(q.createdAt).toISOString().slice(0, 10);
+      counts[day] = (counts[day] ?? 0) + 1;
+    });
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const dayOfWeek = (today.getDay() + 6) % 7;
+    const gridStart = new Date(today);
+    gridStart.setDate(today.getDate() - 27 - dayOfWeek);
+    const totalCells = 28 + dayOfWeek;
+
+    const cells: { key: string; count: number; isToday: boolean; isFuture: boolean }[] = [];
+    for (let i = 0; i < totalCells; i++) {
+      const d = new Date(gridStart);
+      d.setDate(gridStart.getDate() + i);
+      const key = d.toISOString().slice(0, 10);
+      const todayKey = today.toISOString().slice(0, 10);
+      cells.push({ key, count: counts[key] ?? 0, isToday: key === todayKey, isFuture: d > today });
+    }
+
+    const rows: (typeof cells[0] | null)[][] = [];
+    for (let r = 0; r < Math.ceil(cells.length / 7); r++) {
+      rows.push(cells.slice(r * 7, r * 7 + 7));
+    }
+
+    const todayKey = today.toISOString().slice(0, 10);
+    let streak = 0;
+    const startOffset = counts[todayKey] ? 0 : 1;
+    for (let i = startOffset; i < 365; i++) {
+      const d = new Date(today);
+      d.setDate(today.getDate() - i);
+      const k = d.toISOString().slice(0, 10);
+      if (counts[k]) { streak++; } else { break; }
+    }
+
+    return { rows, streak, totalActive: Object.keys(counts).length };
+  }, [evaluations, quizzes]);
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
@@ -608,6 +655,180 @@ export default function QuizScreen() {
         {completed.length >= 1 && (
           <WeakAreaTeaser quizzes={completed} onPress={() => router.push("/weak-areas" as never)} />
         )}
+
+        {/* Study streak calendar */}
+        <View style={{ paddingHorizontal: 20, marginTop: 24 }}>
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "space-between",
+              marginBottom: 12,
+            }}
+          >
+            <View>
+              <Text
+                style={{
+                  color: colors.foreground,
+                  fontFamily: "Inter_700Bold",
+                  fontSize: 16,
+                  letterSpacing: -0.3,
+                }}
+              >
+                Study streak
+              </Text>
+              <Text
+                style={{
+                  color: colors.mutedForeground,
+                  fontFamily: "Inter_400Regular",
+                  fontSize: 12,
+                  marginTop: 1,
+                }}
+              >
+                {calendarData.totalActive > 0
+                  ? `${calendarData.totalActive} active ${calendarData.totalActive === 1 ? "day" : "days"} in this period`
+                  : "Complete a quiz or evaluation to start"}
+              </Text>
+            </View>
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 5,
+                backgroundColor:
+                  calendarData.streak > 0
+                    ? colors.primary + "15"
+                    : colors.secondary,
+                paddingHorizontal: 12,
+                paddingVertical: 7,
+                borderRadius: 999,
+                borderWidth: 1,
+                borderColor:
+                  calendarData.streak > 0
+                    ? colors.primary + "30"
+                    : "transparent",
+              }}
+            >
+              <Feather
+                name="zap"
+                size={13}
+                color={calendarData.streak > 0 ? colors.primary : colors.mutedForeground}
+              />
+              <Text
+                style={{
+                  color: calendarData.streak > 0 ? colors.primary : colors.mutedForeground,
+                  fontFamily: "Inter_700Bold",
+                  fontSize: 13,
+                }}
+              >
+                {calendarData.streak > 0 ? `${calendarData.streak}d streak` : "No streak yet"}
+              </Text>
+            </View>
+          </View>
+
+          <Card>
+            {/* Day-of-week header */}
+            <View
+              style={{
+                flexDirection: "row",
+                justifyContent: "space-between",
+                marginBottom: 6,
+                paddingHorizontal: 2,
+              }}
+            >
+              {DAY_LABELS.map((d, i) => (
+                <Text
+                  key={i}
+                  style={{
+                    flex: 1,
+                    textAlign: "center",
+                    color: colors.mutedForeground,
+                    fontFamily: "Inter_600SemiBold",
+                    fontSize: 10,
+                    letterSpacing: 0.3,
+                  }}
+                >
+                  {d}
+                </Text>
+              ))}
+            </View>
+
+            {/* Calendar grid */}
+            <View style={{ gap: 5 }}>
+              {calendarData.rows.map((row, ri) => (
+                <View
+                  key={ri}
+                  style={{ flexDirection: "row", justifyContent: "space-between", gap: 5 }}
+                >
+                  {row.map((cell, ci) =>
+                    cell === null ? (
+                      <View key={ci} style={{ flex: 1 }} />
+                    ) : (
+                      <View
+                        key={cell.key}
+                        style={{
+                          flex: 1,
+                          aspectRatio: 1,
+                          borderRadius: 7,
+                          backgroundColor: cell.isFuture
+                            ? "transparent"
+                            : cell.count === 0
+                              ? colors.secondary
+                              : cell.count === 1
+                                ? colors.primary + "45"
+                                : cell.count === 2
+                                  ? colors.primary + "80"
+                                  : colors.primary,
+                          borderWidth: cell.isToday ? 2 : 0,
+                          borderColor: cell.isToday ? colors.primary : "transparent",
+                          alignItems: "center",
+                          justifyContent: "center",
+                        }}
+                      >
+                        {cell.isToday && (
+                          <View
+                            style={{
+                              width: 4,
+                              height: 4,
+                              borderRadius: 2,
+                              backgroundColor: cell.count > 0 ? "#fff" : colors.primary,
+                            }}
+                          />
+                        )}
+                      </View>
+                    ),
+                  )}
+                </View>
+              ))}
+            </View>
+
+            {/* Legend */}
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "flex-end",
+                gap: 5,
+                marginTop: 12,
+                paddingTop: 10,
+                borderTopWidth: 1,
+                borderTopColor: colors.border,
+              }}
+            >
+              <Text style={{ color: colors.mutedForeground, fontFamily: "Inter_500Medium", fontSize: 10 }}>
+                Less
+              </Text>
+              {[colors.secondary, colors.primary + "45", colors.primary + "80", colors.primary].map(
+                (bg, i) => (
+                  <View key={i} style={{ width: 12, height: 12, borderRadius: 3, backgroundColor: bg }} />
+                ),
+              )}
+              <Text style={{ color: colors.mutedForeground, fontFamily: "Inter_500Medium", fontSize: 10 }}>
+                More
+              </Text>
+            </View>
+          </Card>
+        </View>
 
         {/* History */}
         <View style={{ paddingHorizontal: 20, marginTop: 24 }}>
