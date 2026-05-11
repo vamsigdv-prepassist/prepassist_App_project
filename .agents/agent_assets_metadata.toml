@@ -1,5 +1,4 @@
 uploads = []
-outputs = []
 
 [[generated]]
 id = "Xmwwiy8KRlDPxNZhdrHvI"
@@ -18,3 +17,9 @@ id = "hIbYOitptcWiKnAHQosdt"
 uri = "file://artifacts/prepassist-deck/public/flow-bg.png"
 type = "image"
 title = "generated_image"
+
+[[outputs]]
+id = "JnDu9457eTlquKohYlOH1"
+uri = "file://.local/outputs/Prepassist-Mobile-Companion.pdf"
+type = "pdf"
+title = "Prepassist Mobile Companion.pdf"
