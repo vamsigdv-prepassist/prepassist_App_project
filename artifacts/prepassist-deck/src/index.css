@@ -4,6 +4,7 @@
   --color-primary: var(--slide-primary);
   --color-accent: var(--slide-accent);
   --color-bg: var(--slide-bg);
+  --color-surface: var(--slide-surface);
   --color-text: var(--slide-text);
   --color-muted: var(--slide-muted);
   --font-display: var(--font-display-family);
@@ -11,20 +12,18 @@
 }
 
 :root {
-  /* Replace these with brand colors */
-  --slide-primary: #4f46e5;
-  --slide-accent: #06b6d4;
-  --slide-bg: #f8fafc;
-  --slide-text: #0f172a;
-  --slide-muted: #64748b;
-  --font-display-family: "Inter", system-ui, sans-serif;
-  --font-body-family: "Inter", system-ui, sans-serif;
-  color-scheme: light;
+  --slide-primary: #4F39F6;
+  --slide-accent: #06B6D4;
+  --slide-bg: #0B0F1A;
+  --slide-surface: #111827;
+  --slide-text: #F1F5F9;
+  --slide-muted: #94A3B8;
+  --font-display-family: "Space Grotesk", system-ui, sans-serif;
+  --font-body-family: "DM Sans", system-ui, sans-serif;
+  color-scheme: dark;
 }
 
-html,
-body,
-#root {
+html, body, #root {
   width: 100%;
   height: 100%;
   margin: 0;

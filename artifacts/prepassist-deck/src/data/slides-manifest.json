@@ -1,1 +1,162 @@
-[]
+[
+  {
+    "id": "a1b2c3d4-0001-4000-a000-000000000001",
+    "position": 1,
+    "filepath": "src/pages/slides/Slide01Title.tsx",
+    "title": "PrepAssist",
+    "description": "Title slide — AI-powered UPSC exam preparation companion",
+    "speakerNotes": ""
+  },
+  {
+    "id": "a1b2c3d4-0002-4000-a000-000000000002",
+    "position": 2,
+    "filepath": "src/pages/slides/Slide02UPSCChallenge.tsx",
+    "title": "The UPSC Challenge",
+    "description": "Scale and difficulty of the UPSC exam",
+    "speakerNotes": ""
+  },
+  {
+    "id": "a1b2c3d4-0003-4000-a000-000000000003",
+    "position": 3,
+    "filepath": "src/pages/slides/Slide03PreparationGap.tsx",
+    "title": "The Preparation Gap",
+    "description": "Problem — cost, access, and feedback gaps in UPSC prep",
+    "speakerNotes": ""
+  },
+  {
+    "id": "a1b2c3d4-0004-4000-a000-000000000004",
+    "position": 4,
+    "filepath": "src/pages/slides/Slide04WhatItDoes.tsx",
+    "title": "What PrepAssist Does",
+    "description": "Four AI modules overview",
+    "speakerNotes": ""
+  },
+  {
+    "id": "a1b2c3d4-0005-4000-a000-000000000005",
+    "position": 5,
+    "filepath": "src/pages/slides/Slide05Vault.tsx",
+    "title": "Vault — Your AI Document Store",
+    "description": "RAG-style document store feature",
+    "speakerNotes": ""
+  },
+  {
+    "id": "a1b2c3d4-0006-4000-a000-000000000006",
+    "position": 6,
+    "filepath": "src/pages/slides/Slide06MainsAI.tsx",
+    "title": "Mains AI — Essay Evaluator",
+    "description": "Handwritten essay photo evaluation with rubric",
+    "speakerNotes": ""
+  },
+  {
+    "id": "a1b2c3d4-0007-4000-a000-000000000007",
+    "position": 7,
+    "filepath": "src/pages/slides/Slide07QuizEngine.tsx",
+    "title": "Quiz Engine — Adaptive Prelims Drill",
+    "description": "Topic-based MCQ generation and quick drills",
+    "speakerNotes": ""
+  },
+  {
+    "id": "a1b2c3d4-0008-4000-a000-000000000008",
+    "position": 8,
+    "filepath": "src/pages/slides/Slide08PDFExtractor.tsx",
+    "title": "PDF Quiz Extractor",
+    "description": "Upload PDF → extract up to 200 MCQs automatically",
+    "speakerNotes": ""
+  },
+  {
+    "id": "a1b2c3d4-0009-4000-a000-000000000009",
+    "position": 9,
+    "filepath": "src/pages/slides/Slide09StudyStreak.tsx",
+    "title": "Study Streak Calendar",
+    "description": "4-week heatmap habit tracker",
+    "speakerNotes": ""
+  },
+  {
+    "id": "a1b2c3d4-0010-4000-a000-000000000010",
+    "position": 10,
+    "filepath": "src/pages/slides/Slide10ProductLoop.tsx",
+    "title": "The Full Product Loop",
+    "description": "End-to-end study workflow from upload to quiz",
+    "speakerNotes": ""
+  },
+  {
+    "id": "a1b2c3d4-0011-4000-a000-000000000011",
+    "position": 11,
+    "filepath": "src/pages/slides/Slide11TechStack.tsx",
+    "title": "Technology Stack",
+    "description": "Expo, OpenAI, Express, AsyncStorage",
+    "speakerNotes": ""
+  },
+  {
+    "id": "a1b2c3d4-0012-4000-a000-000000000012",
+    "position": 12,
+    "filepath": "src/pages/slides/Slide12AIArchitecture.tsx",
+    "title": "AI Architecture",
+    "description": "API routes, SSE streaming, PDF extraction internals",
+    "speakerNotes": ""
+  },
+  {
+    "id": "a1b2c3d4-0013-4000-a000-000000000013",
+    "position": 13,
+    "filepath": "src/pages/slides/Slide13UXDesign.tsx",
+    "title": "User Experience Design",
+    "description": "NativeTabs, haptics, gradient, one-handed use",
+    "speakerNotes": ""
+  },
+  {
+    "id": "a1b2c3d4-0014-4000-a000-000000000014",
+    "position": 14,
+    "filepath": "src/pages/slides/Slide14Accessibility.tsx",
+    "title": "Accessibility",
+    "description": "Expo Go, web fallback, offline, mid-range Android",
+    "speakerNotes": ""
+  },
+  {
+    "id": "a1b2c3d4-0015-4000-a000-000000000015",
+    "position": 15,
+    "filepath": "src/pages/slides/Slide15TargetUsers.tsx",
+    "title": "Target Users",
+    "description": "Three core user profiles",
+    "speakerNotes": ""
+  },
+  {
+    "id": "a1b2c3d4-0016-4000-a000-000000000016",
+    "position": 16,
+    "filepath": "src/pages/slides/Slide16Competitive.tsx",
+    "title": "Competitive Positioning",
+    "description": "PrepAssist vs ForumIAS, Unacademy, ChatGPT",
+    "speakerNotes": ""
+  },
+  {
+    "id": "a1b2c3d4-0017-4000-a000-000000000017",
+    "position": 17,
+    "filepath": "src/pages/slides/Slide17Traction.tsx",
+    "title": "Traction Indicators",
+    "description": "Product status and build completeness",
+    "speakerNotes": ""
+  },
+  {
+    "id": "a1b2c3d4-0018-4000-a000-000000000018",
+    "position": 18,
+    "filepath": "src/pages/slides/Slide18Roadmap.tsx",
+    "title": "Roadmap",
+    "description": "Near-term and longer-term feature plans",
+    "speakerNotes": ""
+  },
+  {
+    "id": "a1b2c3d4-0019-4000-a000-000000000019",
+    "position": 19,
+    "filepath": "src/pages/slides/Slide19Vision.tsx",
+    "title": "Vision",
+    "description": "Mission statement and core principles",
+    "speakerNotes": ""
+  },
+  {
+    "id": "a1b2c3d4-0020-4000-a000-000000000020",
+    "position": 20,
+    "filepath": "src/pages/slides/Slide20Closing.tsx",
+    "title": "PrepAssist",
+    "description": "Closing slide with contact and brand lockup",
+    "speakerNotes": ""
+  }
+]
