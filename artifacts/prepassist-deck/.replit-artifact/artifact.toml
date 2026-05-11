@@ -1,0 +1,31 @@
+kind = "slides"
+previewPath = "/prepassist-deck/"
+title = "PrepAssist Pitch Deck"
+version = "1.0.0"
+id = "artifacts/prepassist-deck"
+router = "path"
+
+[[integratedSkills]]
+name = "slides"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/prepassist-deck/" ]
+localPort = 24507
+
+[services.development]
+run = "pnpm --filter @workspace/prepassist-deck run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/prepassist-deck", "run", "build" ]
+publicDir = "artifacts/prepassist-deck/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "24507"
+BASE_PATH = "/prepassist-deck/"
