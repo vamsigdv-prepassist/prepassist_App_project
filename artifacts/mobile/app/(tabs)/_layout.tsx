@@ -33,6 +33,10 @@ function NativeTabLayout() {
         />
         <Label>Quiz</Label>
       </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="notes">
+        <Icon sf={{ default: "note.text", selected: "note.text" }} />
+        <Label>Notes</Label>
+      </NativeTabs.Trigger>
     </NativeTabs>
   );
 }
@@ -128,6 +132,18 @@ function ClassicTabLayout() {
               />
             ) : (
               <Feather name="help-circle" size={22} color={color} />
+            ),
+        }}
+      />
+      <Tabs.Screen
+        name="notes"
+        options={{
+          title: "Notes",
+          tabBarIcon: ({ color }) =>
+            isIOS ? (
+              <SymbolView name="note.text" tintColor={color} size={24} />
+            ) : (
+              <Feather name="book-open" size={22} color={color} />
             ),
         }}
       />

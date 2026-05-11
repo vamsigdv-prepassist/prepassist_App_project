@@ -70,6 +70,44 @@ export type QuizAttempt = {
   completed: boolean;
 };
 
+export type TrackerNote = {
+  id: string;
+  title: string;
+  content: string;
+  subject: string;
+  tags: string[];
+  isStarred: boolean;
+  imageUri?: string;
+  createdAt: number;
+};
+
+export const CORE_SUBJECTS = [
+  "Polity",
+  "History",
+  "Geography",
+  "Economy",
+  "Environment",
+  "Art & Culture",
+  "Science & Tech",
+];
+
+export const OPTIONAL_SUBJECTS = [
+  "History",
+  "Public Administration",
+  "Political Science & IR",
+  "Sociology",
+  "Psychology",
+  "Philosophy",
+  "Economics",
+  "Anthropology",
+  "Geography",
+  "Agriculture",
+  "Law",
+  "Mathematics",
+  "Physics",
+  "Chemistry",
+];
+
 type AppState = {
   userName: string;
   setUserName: (name: string) => void;
@@ -100,6 +138,17 @@ type AppState = {
   quizzes: QuizAttempt[];
   addQuiz: (q: Omit<QuizAttempt, "id" | "createdAt">) => QuizAttempt;
   updateQuiz: (id: string, patch: Partial<QuizAttempt>) => void;
+
+  trackerNotes: TrackerNote[];
+  addTrackerNote: (n: Omit<TrackerNote, "id" | "createdAt">) => TrackerNote;
+  updateTrackerNote: (id: string, patch: Partial<TrackerNote>) => void;
+  removeTrackerNote: (id: string) => void;
+
+  optionalSubject: string | null;
+  setOptionalSubject: (s: string | null) => void;
+  customSubjects: string[];
+  addCustomSubject: (s: string) => void;
+  removeCustomSubject: (s: string) => void;
 
   hydrated: boolean;
 };
@@ -177,6 +226,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [chats, setChats] = useState<Record<string, ChatMessage[]>>(SEED_CHATS);
   const [evaluations, setEvaluations] = useState<MainsEvaluation[]>([]);
   const [quizzes, setQuizzes] = useState<QuizAttempt[]>([]);
+  const [trackerNotes, setTrackerNotes] = useState<TrackerNote[]>([]);
+  const [optionalSubject, setOptionalSubjectState] = useState<string | null>(null);
+  const [customSubjects, setCustomSubjects] = useState<string[]>([]);
 
   // Hydrate from AsyncStorage
   useEffect(() => {
@@ -196,6 +248,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           if (Array.isArray(parsed.evaluations))
             setEvaluations(parsed.evaluations);
           if (Array.isArray(parsed.quizzes)) setQuizzes(parsed.quizzes);
+          if (Array.isArray(parsed.trackerNotes)) setTrackerNotes(parsed.trackerNotes);
+          if (parsed.optionalSubject) setOptionalSubjectState(parsed.optionalSubject);
+          if (Array.isArray(parsed.customSubjects)) setCustomSubjects(parsed.customSubjects);
         }
       } catch {
         // ignore - use defaults
@@ -216,6 +271,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       chats,
       evaluations,
       quizzes,
+      trackerNotes,
+      optionalSubject,
+      customSubjects,
     };
     AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(payload)).catch(() => {});
   }, [
@@ -227,6 +285,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     chats,
     evaluations,
     quizzes,
+    trackerNotes,
+    optionalSubject,
+    customSubjects,
   ]);
 
   const setUserName = useCallback((name: string) => {
@@ -315,6 +376,32 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     );
   }, []);
 
+  const addTrackerNote = useCallback<AppState["addTrackerNote"]>((n) => {
+    const note: TrackerNote = { ...n, id: uid(), createdAt: Date.now() };
+    setTrackerNotes((prev) => [note, ...prev]);
+    return note;
+  }, []);
+
+  const updateTrackerNote = useCallback<AppState["updateTrackerNote"]>((id, patch) => {
+    setTrackerNotes((prev) => prev.map((n) => (n.id === id ? { ...n, ...patch } : n)));
+  }, []);
+
+  const removeTrackerNote = useCallback((id: string) => {
+    setTrackerNotes((prev) => prev.filter((n) => n.id !== id));
+  }, []);
+
+  const setOptionalSubject = useCallback((s: string | null) => {
+    setOptionalSubjectState(s);
+  }, []);
+
+  const addCustomSubject = useCallback((s: string) => {
+    setCustomSubjects((prev) => (prev.includes(s) ? prev : [...prev, s]));
+  }, []);
+
+  const removeCustomSubject = useCallback((s: string) => {
+    setCustomSubjects((prev) => prev.filter((x) => x !== s));
+  }, []);
+
   const value = useMemo<AppState>(
     () => ({
       userName,
@@ -334,6 +421,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       quizzes,
       addQuiz,
       updateQuiz,
+      trackerNotes,
+      addTrackerNote,
+      updateTrackerNote,
+      removeTrackerNote,
+      optionalSubject,
+      setOptionalSubject,
+      customSubjects,
+      addCustomSubject,
+      removeCustomSubject,
       hydrated,
     }),
     [
@@ -354,6 +450,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       quizzes,
       addQuiz,
       updateQuiz,
+      trackerNotes,
+      addTrackerNote,
+      updateTrackerNote,
+      removeTrackerNote,
+      optionalSubject,
+      setOptionalSubject,
+      customSubjects,
+      addCustomSubject,
+      removeCustomSubject,
       hydrated,
     ],
   );
