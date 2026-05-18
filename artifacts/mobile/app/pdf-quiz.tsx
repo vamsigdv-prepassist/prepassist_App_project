@@ -35,6 +35,19 @@ const UPSC_TIPS = [
   "Questions near the end of the PDF are being extracted too, not just the first page.",
 ];
 
+function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const result = reader.result as string;
+      const b64 = result.includes(",") ? result.split(",")[1]! : result;
+      resolve(b64);
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
 export default function PdfQuizScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -75,9 +88,18 @@ export default function PdfQuizScreen() {
       });
       if (result.canceled || !result.assets?.length) return;
       const asset = result.assets[0]!;
-      const base64 = await FileSystem.readAsStringAsync(asset.uri, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
+
+      let base64 = "";
+      if (Platform.OS === "web") {
+        const res = await fetch(asset.uri);
+        const blob = await res.blob();
+        base64 = await blobToBase64(blob);
+      } else {
+        base64 = await FileSystem.readAsStringAsync(asset.uri, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+      }
+
       setPdfName(asset.name);
       setPdfBase64(base64);
       setPdfSize(asset.size ?? 0);
