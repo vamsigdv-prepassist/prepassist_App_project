@@ -382,21 +382,36 @@ router.post("/ai/quiz", async (req, res) => {
 
 // Chunk text into ~5000-char paragraph-bounded segments for parallel MCQ extraction
 function chunkTextForQuiz(text: string): string[] {
-  const IDEAL = 5_000;
-  const paragraphs = text.split(/\n{2,}/);
-  const chunks: string[] = [];
-  let current = "";
+  // Split by character count, breaking at newline boundaries.
+  // UPSC PDFs rarely use double-newlines between questions, so paragraph-based
+  // splitting collapses the whole document into one giant chunk.
+  const IDEAL = 8_000;
+  const OVERLAP = 600; // overlap so questions at chunk boundaries aren't missed
 
-  for (const para of paragraphs) {
-    const candidate = current ? `${current}\n\n${para}` : para;
-    if (candidate.length > IDEAL && current.length > 0) {
-      if (current.trim().length > 30) chunks.push(current.trim());
-      current = para;
-    } else {
-      current = candidate;
+  const chunks: string[] = [];
+  let start = 0;
+
+  while (start < text.length) {
+    const end = start + IDEAL;
+
+    if (end >= text.length) {
+      const chunk = text.slice(start).trim();
+      if (chunk.length > 30) chunks.push(chunk);
+      break;
     }
+
+    // Prefer to break at the last newline within the window
+    let breakAt = end;
+    const nlPos = text.lastIndexOf("\n", end);
+    if (nlPos > start + IDEAL * 0.4) breakAt = nlPos;
+
+    const chunk = text.slice(start, breakAt).trim();
+    if (chunk.length > 30) chunks.push(chunk);
+
+    // Step forward with overlap so boundary questions aren't cut off
+    start = breakAt - OVERLAP;
+    if (start < 0) start = 0;
   }
-  if (current.trim().length > 30) chunks.push(current.trim());
 
   return chunks.length > 0 ? chunks : [text.slice(0, 50_000)];
 }
@@ -436,7 +451,7 @@ async function extractMcqsFromChunk(
   try {
     const response = await openaiClient.chat.completions.create({
       model: MODEL,
-      max_completion_tokens: 4_000,
+      max_completion_tokens: 16_000,
       response_format: { type: "json_object" },
       messages: [
         { role: "system", content: system },
