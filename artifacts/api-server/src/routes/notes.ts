@@ -136,6 +136,7 @@ router.post("/ai/notes/extract-pdf", async (req, res) => {
 
 // ── POST /ai/notes/extract-url ───────────────────────────────────────────────
 // Accepts { url } and returns { text, title }
+// Uses Apify website-content-crawler for articles, unpdf for PDF links.
 router.post("/ai/notes/extract-url", async (req, res) => {
   try {
     const { url } = req.body ?? {};
@@ -144,45 +145,87 @@ router.post("/ai/notes/extract-url", async (req, res) => {
       return;
     }
 
-    req.log?.info({ url }, "notes/extract-url: fetching");
-
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 20_000);
-    let raw = "";
-    let pageTitle = "";
-
-    try {
-      if (url.toLowerCase().endsWith(".pdf")) {
-        // Handle PDF URLs directly
-        const pdfRes = await fetch(url, { signal: controller.signal });
-        const arrayBuffer = await pdfRes.arrayBuffer();
-        const bytes = new Uint8Array(arrayBuffer);
-        const doc = await getDocumentProxy(bytes);
-        const { text } = await extractText(doc, { mergePages: true });
-        raw = (Array.isArray(text) ? text.join("\n\n") : text).trim();
-        pageTitle = url.split("/").pop()?.replace(/\.pdf$/i, "") ?? "PDF Document";
-      } else {
-        const htmlRes = await fetch(url, {
-          signal: controller.signal,
-          headers: { "User-Agent": "PrepAssist/1.0" },
-        });
-        const html = await htmlRes.text();
-        // Extract title
-        const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
-        pageTitle = titleMatch ? titleMatch[1].trim() : url.split("/").pop() ?? "Web Article";
-        raw = stripHtml(html);
-      }
-    } finally {
-      clearTimeout(timeout);
-    }
-
-    if (raw.length < 100) {
-      res.status(400).json({ error: "Could not extract meaningful content from that URL." });
+    const apifyToken = process.env["APIFY_API_TOKEN"];
+    if (!apifyToken) {
+      res.status(500).json({ error: "APIFY_API_TOKEN is not configured on the server." });
       return;
     }
 
-    req.log?.info({ chars: raw.length, pageTitle }, "notes/extract-url: fetched");
+    req.log?.info({ url }, "notes/extract-url: starting");
 
+    let raw = "";
+    let pageTitle = "";
+
+    // ── PDF link: extract text directly with unpdf ──────────────────────────
+    if (url.toLowerCase().endsWith(".pdf")) {
+      req.log?.info("notes/extract-url: detected PDF URL");
+      const pdfRes = await fetch(url);
+      if (!pdfRes.ok) throw new Error(`Failed to fetch PDF (${pdfRes.status})`);
+      const arrayBuffer = await pdfRes.arrayBuffer();
+      const bytes = new Uint8Array(arrayBuffer);
+      const doc = await getDocumentProxy(bytes);
+      const { text } = await extractText(doc, { mergePages: true });
+      raw = (Array.isArray(text) ? text.join("\n\n") : text).trim();
+      pageTitle = decodeURIComponent(url.split("/").pop() ?? "")
+        .replace(/\.pdf$/i, "")
+        .replace(/[-_]/g, " ")
+        .trim() || "PDF Document";
+
+    // ── Web article: use Apify website-content-crawler ─────────────────────
+    } else {
+      req.log?.info("notes/extract-url: calling Apify crawler");
+
+      const apifyUrl =
+        "https://api.apify.com/v2/acts/apify~website-content-crawler/run-sync-get-dataset-items" +
+        `?token=${apifyToken}&timeout=90`;
+
+      const apifyRes = await fetch(apifyUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          startUrls: [{ url }],
+          maxCrawlPages: 1,
+          crawlerType: "playwright:chrome",
+          proxyConfiguration: { useApifyProxy: true, groups: ["RESIDENTIAL"] },
+          saveMarkdown: true,
+          useStealth: true,
+          pageLoadTimeoutSecs: 60,
+          waitBrowserSteps: [{ wait: 5000 }],
+        }),
+      });
+
+      if (!apifyRes.ok) {
+        const errBody = await apifyRes.text().catch(() => "");
+        req.log?.error({ status: apifyRes.status, body: errBody }, "Apify request failed");
+        throw new Error(`Apify returned ${apifyRes.status}`);
+      }
+
+      const items = (await apifyRes.json()) as Array<{
+        markdown?: string;
+        text?: string;
+        metadata?: { title?: string };
+      }>;
+
+      req.log?.info({ itemCount: items.length }, "notes/extract-url: Apify done");
+
+      const item = items[0];
+      raw = item?.markdown ?? item?.text ?? "";
+      pageTitle =
+        (item?.metadata as { title?: string } | undefined)?.title ??
+        url.split("/").pop() ??
+        "Web Article";
+    }
+
+    if (!raw || raw.trim().length < 100) {
+      res.status(400).json({
+        error: "Could not extract meaningful content from that URL. The page may require login or be paywalled.",
+      });
+      return;
+    }
+
+    req.log?.info({ chars: raw.length, pageTitle }, "notes/extract-url: content ready");
+
+    // ── AI: structure raw content into clean study notes ───────────────────
     const structured = await structureIntoNotes(raw, `${pageTitle} (${url})`);
     req.log?.info({ chars: structured.length }, "notes/extract-url: structured");
 
