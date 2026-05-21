@@ -5,12 +5,14 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
+  Modal,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from "react-native";
+import Markdown from "react-native-markdown-display";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { CORE_SUBJECTS, useApp } from "@/contexts/AppContext";
@@ -29,16 +31,20 @@ interface CurrentAffair {
   created_at: string;
 }
 
-const SOURCE_META: Record<string, { color: string; bg: string; short: string }> = {
-  "The Hindu": { color: "#DC2626", bg: "#FEF2F2", short: "TH" },
-  "Times of India": { color: "#2563EB", bg: "#EFF6FF", short: "TOI" },
-  "PIB Release": { color: "#7C3AED", bg: "#F5F3FF", short: "PIB" },
-  "PrepAssist Editorial": { color: "#059669", bg: "#ECFDF5", short: "PA" },
-};
+const SOURCES = [
+  { key: "The Hindu", label: "The Hindu", color: "#DC2626", bg: "#FEF2F2" },
+  { key: "Times of India", label: "Times of India", color: "#2563EB", bg: "#EFF6FF" },
+  { key: "PIB Release", label: "PIB", color: "#7C3AED", bg: "#F5F3FF" },
+] as const;
 
-function sourceStyle(source: string) {
+function sourceFor(key: string) {
   return (
-    SOURCE_META[source] ?? { color: "#4F39F6", bg: "#EEF2FF", short: "CA" }
+    SOURCES.find((s) => s.key === key) ?? {
+      key,
+      label: key,
+      color: "#4F39F6",
+      bg: "#EEF2FF",
+    }
   );
 }
 
@@ -46,8 +52,8 @@ function isoToday(): string {
   return new Date().toISOString().split("T")[0]!;
 }
 
-function buildDateStrip(count = 60): { iso: string; day: number; month: string; weekday: string }[] {
-  const result = [];
+function buildDateStrip(count = 60) {
+  const result: { iso: string; day: number; month: string; weekday: string }[] = [];
   for (let i = 0; i < count; i++) {
     const d = new Date();
     d.setDate(d.getDate() - i);
@@ -61,78 +67,174 @@ function buildDateStrip(count = 60): { iso: string; day: number; month: string; 
   return result;
 }
 
-function ArticleCard({
+function formatLongDate(iso: string) {
+  const d = new Date(iso + "T00:00:00");
+  const today = isoToday();
+  if (iso === today) return "Today";
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  if (iso === yesterday.toISOString().split("T")[0]) return "Yesterday";
+  return d.toLocaleDateString("en-IN", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+}
+
+// ─── Article Detail Modal ──────────────────────────────────────────────────────
+function ArticleModal({
   article,
+  visible,
+  onClose,
   onSave,
 }: {
-  article: CurrentAffair;
+  article: CurrentAffair | null;
+  visible: boolean;
+  onClose: () => void;
   onSave: (article: CurrentAffair) => void;
 }) {
   const colors = useColors();
-  const [expanded, setExpanded] = useState(false);
-  const meta = sourceStyle(article.source);
+  if (!article) return null;
+  const src = sourceFor(article.source);
+
+  const mdStyles = buildMdStyles(colors.foreground, colors.mutedForeground, colors.primary, colors.card, colors.border);
 
   return (
-    <View style={[s.articleCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-      {/* Header */}
-      <View style={s.articleHeader}>
-        <View style={[s.sourceBadge, { backgroundColor: meta.bg }]}>
-          <Text style={[s.sourceText, { color: meta.color }]}>{article.source}</Text>
+    <Modal
+      visible={visible}
+      animationType="slide"
+      presentationStyle="pageSheet"
+      onRequestClose={onClose}
+    >
+      <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={["top", "bottom"]}>
+        {/* Modal header */}
+        <View style={[ms.header, { borderBottomColor: colors.border }]}>
+          <TouchableOpacity style={ms.closeBtn} onPress={onClose}>
+            <Feather name="x" size={20} color={colors.foreground} />
+          </TouchableOpacity>
+          <View style={[ms.sourcePill, { backgroundColor: src.bg }]}>
+            <Text style={[ms.sourceLabel, { color: src.color }]}>{src.label}</Text>
+          </View>
+          <TouchableOpacity
+            style={[ms.saveBtn, { backgroundColor: colors.primary + "15", borderColor: colors.primary + "40" }]}
+            onPress={() => onSave(article)}
+          >
+            <Feather name="bookmark" size={14} color={colors.primary} />
+            <Text style={[ms.saveBtnText, { color: colors.primary }]}>Save</Text>
+          </TouchableOpacity>
         </View>
-        <TouchableOpacity
-          style={[s.saveBtn, { borderColor: colors.primary + "40" }]}
-          onPress={() => onSave(article)}
+
+        <ScrollView
+          contentContainerStyle={ms.body}
+          showsVerticalScrollIndicator={false}
         >
-          <Feather name="bookmark" size={13} color={colors.primary} />
-          <Text style={[s.saveBtnText, { color: colors.primary }]}>Save</Text>
-        </TouchableOpacity>
-      </View>
+          {/* Date */}
+          <Text style={[ms.dateText, { color: colors.mutedForeground }]}>
+            {new Date(article.publish_date + "T00:00:00").toLocaleDateString("en-IN", {
+              weekday: "long",
+              day: "numeric",
+              month: "long",
+              year: "numeric",
+            })}
+          </Text>
 
-      {/* Title */}
-      <Text style={[s.articleTitle, { color: colors.foreground }]}>
-        {article.title}
-      </Text>
+          {/* Title */}
+          <Text style={[ms.title, { color: colors.foreground }]}>{article.title}</Text>
 
-      {/* Tags */}
-      {article.tags?.length > 0 && (
-        <View style={s.tagRow}>
-          {article.tags.slice(0, 4).map((t, i) => (
-            <View key={i} style={[s.tag, { backgroundColor: colors.primary + "12" }]}>
-              <Text style={[s.tagText, { color: colors.primary }]}>#{t}</Text>
+          {/* Tags */}
+          {article.tags?.length > 0 && (
+            <View style={ms.tagRow}>
+              {article.tags.map((t, i) => (
+                <View key={i} style={[ms.tag, { backgroundColor: colors.primary + "12" }]}>
+                  <Text style={[ms.tagText, { color: colors.primary }]}>#{t}</Text>
+                </View>
+              ))}
             </View>
-          ))}
-        </View>
-      )}
+          )}
 
-      {/* Content */}
-      <Text
-        style={[s.articleContent, { color: colors.mutedForeground }]}
-        numberOfLines={expanded ? undefined : 4}
-      >
-        {article.content}
-      </Text>
+          {/* Divider */}
+          <View style={[ms.divider, { backgroundColor: colors.border }]} />
 
-      {/* Expand toggle */}
-      <TouchableOpacity
-        style={s.expandBtn}
-        onPress={() => {
-          setExpanded((v) => !v);
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-        }}
-      >
-        <Text style={[s.expandText, { color: colors.primary }]}>
-          {expanded ? "Show less" : "Read more"}
-        </Text>
-        <Feather
-          name={expanded ? "chevron-up" : "chevron-down"}
-          size={14}
-          color={colors.primary}
-        />
-      </TouchableOpacity>
-    </View>
+          {/* Markdown content */}
+          <Markdown style={mdStyles}>{article.content}</Markdown>
+        </ScrollView>
+      </SafeAreaView>
+    </Modal>
   );
 }
 
+// ─── Article Card ──────────────────────────────────────────────────────────────
+function ArticleCard({
+  article,
+  onPress,
+  onSave,
+}: {
+  article: CurrentAffair;
+  onPress: () => void;
+  onSave: (article: CurrentAffair) => void;
+}) {
+  const colors = useColors();
+  const src = sourceFor(article.source);
+
+  return (
+    <TouchableOpacity
+      style={[s.card, { backgroundColor: colors.card, borderColor: colors.border }]}
+      onPress={onPress}
+      activeOpacity={0.75}
+    >
+      {/* Left accent bar */}
+      <View style={[s.accentBar, { backgroundColor: src.color }]} />
+
+      <View style={s.cardInner}>
+        {/* Source + Save */}
+        <View style={s.cardTop}>
+          <View style={[s.sourcePill, { backgroundColor: src.bg }]}>
+            <Text style={[s.sourceText, { color: src.color }]}>{article.source}</Text>
+          </View>
+          <TouchableOpacity
+            style={[s.saveBtn, { borderColor: colors.border }]}
+            onPress={(e) => {
+              e.stopPropagation();
+              onSave(article);
+            }}
+          >
+            <Feather name="bookmark" size={13} color={colors.mutedForeground} />
+          </TouchableOpacity>
+        </View>
+
+        {/* Title */}
+        <Text style={[s.cardTitle, { color: colors.foreground }]} numberOfLines={3}>
+          {article.title}
+        </Text>
+
+        {/* Tags */}
+        {article.tags?.length > 0 && (
+          <View style={s.tagRow}>
+            {article.tags.slice(0, 3).map((t, i) => (
+              <View key={i} style={[s.tag, { backgroundColor: colors.primary + "12" }]}>
+                <Text style={[s.tagText, { color: colors.primary }]}>#{t}</Text>
+              </View>
+            ))}
+          </View>
+        )}
+
+        {/* Preview snippet */}
+        <Text style={[s.preview, { color: colors.mutedForeground }]} numberOfLines={2}>
+          {article.content.replace(/#{1,6}\s|[*_~`>]/g, "")}
+        </Text>
+
+        {/* Read more hint */}
+        <View style={s.readMore}>
+          <Text style={[s.readMoreText, { color: colors.primary }]}>Read full article</Text>
+          <Feather name="arrow-right" size={12} color={colors.primary} />
+        </View>
+      </View>
+    </TouchableOpacity>
+  );
+}
+
+// ─── Main Screen ───────────────────────────────────────────────────────────────
 export default function CurrentAffairsScreen() {
   const colors = useColors();
   const { addTrackerNote, customSubjects, optionalSubject } = useApp();
@@ -146,12 +248,17 @@ export default function CurrentAffairsScreen() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
 
-  const [sourceFilter, setSourceFilter] = useState<string>("All");
+  // Source toggle — default to The Hindu
+  const [activeSource, setActiveSource] = useState<string>(SOURCES[0].key);
 
+  // Article detail modal
+  const [modalArticle, setModalArticle] = useState<CurrentAffair | null>(null);
+  const [modalVisible, setModalVisible] = useState(false);
+
+  // Save-to-notes modal
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [savingArticle, setSavingArticle] = useState<CurrentAffair | null>(null);
   const [saveSubject, setSaveSubject] = useState(CORE_SUBJECTS[0]!);
-  const [isSaving, setIsSaving] = useState(false);
 
   const allSubjects = useMemo(
     () => [
@@ -162,9 +269,7 @@ export default function CurrentAffairsScreen() {
     [optionalSubject, customSubjects],
   );
 
-  const flatRef = useRef<FlatList>(null);
-
-  // Load available dates once
+  // Load available dates on mount
   useEffect(() => {
     (async () => {
       try {
@@ -181,12 +286,11 @@ export default function CurrentAffairsScreen() {
     })();
   }, []);
 
-  // Load articles when date changes
+  // Fetch articles on date change
   const fetchArticles = useCallback(async (date: string) => {
     setLoading(true);
     setError(false);
     setArticles([]);
-    setSourceFilter("All");
     try {
       const res = await fetch(`${API_BASE}/current-affairs?date=${date}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -203,18 +307,26 @@ export default function CurrentAffairsScreen() {
     fetchArticles(selectedDate);
   }, [selectedDate, fetchArticles]);
 
-  const sources = useMemo(() => {
-    const s = new Set(articles.map((a) => a.source));
-    return ["All", ...Array.from(s)];
+  // Articles filtered by the active source toggle
+  const filtered = useMemo(
+    () => articles.filter((a) => a.source === activeSource),
+    [articles, activeSource],
+  );
+
+  // Counts per source so we can show badges on toggle buttons
+  const countBySource = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const a of articles) {
+      map[a.source] = (map[a.source] ?? 0) + 1;
+    }
+    return map;
   }, [articles]);
 
-  const filtered = useMemo(
-    () =>
-      sourceFilter === "All"
-        ? articles
-        : articles.filter((a) => a.source === sourceFilter),
-    [articles, sourceFilter],
-  );
+  function openArticle(article: CurrentAffair) {
+    setModalArticle(article);
+    setModalVisible(true);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  }
 
   function handleSavePress(article: CurrentAffair) {
     setSavingArticle(article);
@@ -224,7 +336,6 @@ export default function CurrentAffairsScreen() {
 
   function confirmSave() {
     if (!savingArticle) return;
-    setIsSaving(true);
     addTrackerNote({
       title: savingArticle.title,
       content: `**Source:** ${savingArticle.source}\n**Date:** ${savingArticle.publish_date}\n\n${savingArticle.content}`,
@@ -232,26 +343,10 @@ export default function CurrentAffairsScreen() {
       tags: [...(savingArticle.tags ?? []), "current-affairs"],
       isStarred: false,
     });
-    setIsSaving(false);
     setShowSaveModal(false);
     setSavingArticle(null);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     Alert.alert("Saved!", `"${savingArticle.title}" added to ${saveSubject} notes.`);
-  }
-
-  function formatHeaderDate(iso: string) {
-    const d = new Date(iso + "T00:00:00");
-    const today = isoToday();
-    if (iso === today) return "Today";
-    const yesterday = new Date();
-    yesterday.setDate(yesterday.getDate() - 1);
-    if (iso === yesterday.toISOString().split("T")[0]) return "Yesterday";
-    return d.toLocaleDateString("en-IN", {
-      weekday: "long",
-      day: "numeric",
-      month: "long",
-      year: "numeric",
-    });
   }
 
   return (
@@ -261,140 +356,150 @@ export default function CurrentAffairsScreen() {
         <View>
           <Text style={[s.headerTitle, { color: colors.foreground }]}>Current Affairs</Text>
           <Text style={[s.headerSub, { color: colors.mutedForeground }]}>
-            The Hindu · Times of India · PIB
+            {formatLongDate(selectedDate)}
           </Text>
         </View>
-        {articles.length > 0 && (
+        {!loading && articles.length > 0 && (
           <View style={[s.countBadge, { backgroundColor: colors.primary + "15" }]}>
             <Text style={[s.countText, { color: colors.primary }]}>
-              {filtered.length} article{filtered.length !== 1 ? "s" : ""}
+              {articles.length} total
             </Text>
           </View>
         )}
       </View>
 
+      {/* Source Toggles */}
+      <View style={[s.toggleRow, { borderBottomColor: colors.border }]}>
+        {SOURCES.map((src) => {
+          const active = activeSource === src.key;
+          const count = countBySource[src.key] ?? 0;
+          return (
+            <TouchableOpacity
+              key={src.key}
+              style={[
+                s.toggleBtn,
+                active
+                  ? { backgroundColor: src.color, borderColor: src.color }
+                  : { backgroundColor: colors.card, borderColor: colors.border },
+              ]}
+              onPress={() => {
+                setActiveSource(src.key);
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              }}
+            >
+              <Text
+                style={[
+                  s.toggleLabel,
+                  { color: active ? "#fff" : colors.mutedForeground },
+                ]}
+                numberOfLines={1}
+              >
+                {src.label}
+              </Text>
+              {!loading && count > 0 && (
+                <View
+                  style={[
+                    s.toggleCount,
+                    {
+                      backgroundColor: active ? "rgba(255,255,255,0.25)" : colors.primary + "18",
+                    },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      s.toggleCountText,
+                      { color: active ? "#fff" : colors.primary },
+                    ]}
+                  >
+                    {count}
+                  </Text>
+                </View>
+              )}
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+
       {/* Date strip */}
-      <View style={s.stripWrapper}>
-        <FlatList
-          ref={flatRef}
-          data={dateStrip}
-          keyExtractor={(d) => d.iso}
-          horizontal
-          inverted
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={s.stripContent}
-          renderItem={({ item }) => {
-            const isSelected = item.iso === selectedDate;
-            const hasContent = availableDates.has(item.iso);
-            const isToday = item.iso === isoToday();
-            return (
-              <TouchableOpacity
+      <FlatList
+        data={dateStrip}
+        keyExtractor={(d) => d.iso}
+        horizontal
+        inverted
+        showsHorizontalScrollIndicator={false}
+        style={s.strip}
+        contentContainerStyle={s.stripContent}
+        renderItem={({ item }) => {
+          const isSelected = item.iso === selectedDate;
+          const hasContent = availableDates.has(item.iso);
+          const isToday = item.iso === isoToday();
+          return (
+            <TouchableOpacity
+              style={[
+                s.dateCell,
+                isSelected
+                  ? { backgroundColor: colors.primary }
+                  : isToday
+                  ? { borderWidth: 1.5, borderColor: colors.primary }
+                  : { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 },
+                { borderRadius: 14 },
+              ]}
+              onPress={() => {
+                setSelectedDate(item.iso);
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              }}
+            >
+              <Text
                 style={[
-                  s.dateCell,
-                  isSelected && { backgroundColor: colors.primary },
-                  !isSelected && isToday && { borderWidth: 1.5, borderColor: colors.primary },
-                  { borderRadius: 14 },
+                  s.weekday,
+                  { color: isSelected ? "rgba(255,255,255,0.75)" : colors.mutedForeground },
                 ]}
-                onPress={() => {
-                  setSelectedDate(item.iso);
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                }}
               >
-                <Text
-                  style={[
-                    s.dateCellWeekday,
-                    { color: isSelected ? "rgba(255,255,255,0.75)" : colors.mutedForeground },
-                  ]}
-                >
-                  {item.weekday}
-                </Text>
-                <Text
-                  style={[
-                    s.dateCellDay,
-                    { color: isSelected ? "#fff" : colors.foreground },
-                    isToday && !isSelected && { color: colors.primary },
-                  ]}
-                >
-                  {item.day}
-                </Text>
-                <Text
-                  style={[
-                    s.dateCellMonth,
-                    { color: isSelected ? "rgba(255,255,255,0.75)" : colors.mutedForeground },
-                  ]}
-                >
-                  {item.month}
-                </Text>
-                {datesLoaded && hasContent && !isSelected && (
-                  <View style={[s.dot, { backgroundColor: colors.primary }]} />
-                )}
-                {isSelected && (
-                  <View style={[s.dot, { backgroundColor: "rgba(255,255,255,0.7)" }]} />
-                )}
-              </TouchableOpacity>
-            );
-          }}
-        />
-      </View>
-
-      {/* Source filter pills */}
-      {sources.length > 1 && !loading && (
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={s.filterScroll}
-          contentContainerStyle={s.filterRow}
-        >
-          {sources.map((src) => {
-            const active = sourceFilter === src;
-            const meta = src === "All" ? null : sourceStyle(src);
-            return (
-              <TouchableOpacity
-                key={src}
+                {item.weekday}
+              </Text>
+              <Text
                 style={[
-                  s.filterPill,
-                  {
-                    backgroundColor: active
-                      ? meta?.color ?? colors.primary
-                      : colors.card,
-                    borderColor: active
-                      ? meta?.color ?? colors.primary
-                      : colors.border,
-                  },
+                  s.day,
+                  { color: isSelected ? "#fff" : isToday ? colors.primary : colors.foreground },
                 ]}
-                onPress={() => setSourceFilter(src)}
               >
-                <Text
+                {item.day}
+              </Text>
+              <Text
+                style={[
+                  s.month,
+                  { color: isSelected ? "rgba(255,255,255,0.75)" : colors.mutedForeground },
+                ]}
+              >
+                {item.month}
+              </Text>
+              {datesLoaded && hasContent && (
+                <View
                   style={[
-                    s.filterPillText,
-                    { color: active ? "#fff" : colors.mutedForeground },
+                    s.dot,
+                    {
+                      backgroundColor: isSelected
+                        ? "rgba(255,255,255,0.7)"
+                        : colors.primary,
+                    },
                   ]}
-                >
-                  {src}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
-      )}
+                />
+              )}
+            </TouchableOpacity>
+          );
+        }}
+      />
 
-      {/* Date heading */}
-      <View style={s.dateHeadingRow}>
-        <Text style={[s.dateHeading, { color: colors.foreground }]}>
-          {formatHeaderDate(selectedDate)}
-        </Text>
-      </View>
-
-      {/* Content */}
+      {/* Article list */}
       {loading ? (
-        <View style={s.centeredState}>
+        <View style={s.center}>
           <ActivityIndicator color={colors.primary} size="large" />
           <Text style={[s.stateText, { color: colors.mutedForeground }]}>
             Loading articles…
           </Text>
         </View>
       ) : error ? (
-        <View style={s.centeredState}>
+        <View style={s.center}>
           <Feather name="wifi-off" size={32} color={colors.mutedForeground} />
           <Text style={[s.stateText, { color: colors.mutedForeground }]}>
             Couldn't load articles
@@ -407,15 +512,22 @@ export default function CurrentAffairsScreen() {
           </TouchableOpacity>
         </View>
       ) : filtered.length === 0 ? (
-        <View style={s.centeredState}>
-          <View style={[s.emptyIcon, { backgroundColor: colors.primary + "15" }]}>
-            <Feather name="file-text" size={34} color={colors.primary} />
+        <View style={s.center}>
+          <View
+            style={[
+              s.emptyIcon,
+              { backgroundColor: sourceFor(activeSource).color + "15" },
+            ]}
+          >
+            <Feather name="file-text" size={32} color={sourceFor(activeSource).color} />
           </View>
           <Text style={[s.emptyTitle, { color: colors.foreground }]}>
-            No articles for this date
+            No {activeSource} articles
           </Text>
           <Text style={[s.stateText, { color: colors.mutedForeground }]}>
-            The admin uploads The Hindu and TOI summaries daily. Check back soon.
+            {articles.length > 0
+              ? `Try switching to another source above.`
+              : `No articles published for this date yet.`}
           </Text>
         </View>
       ) : (
@@ -423,31 +535,48 @@ export default function CurrentAffairsScreen() {
           data={filtered}
           keyExtractor={(a) => a.id}
           renderItem={({ item }) => (
-            <ArticleCard article={item} onSave={handleSavePress} />
+            <ArticleCard
+              article={item}
+              onPress={() => openArticle(item)}
+              onSave={handleSavePress}
+            />
           )}
           contentContainerStyle={s.listContent}
           showsVerticalScrollIndicator={false}
         />
       )}
 
-      {/* Save to Notes Modal */}
+      {/* Article detail modal */}
+      <ArticleModal
+        article={modalArticle}
+        visible={modalVisible}
+        onClose={() => setModalVisible(false)}
+        onSave={(a) => {
+          setModalVisible(false);
+          handleSavePress(a);
+        }}
+      />
+
+      {/* Save-to-notes bottom sheet */}
       {showSaveModal && savingArticle && (
-        <View style={s.modalOverlay}>
+        <View style={s.overlay}>
           <TouchableOpacity
             style={StyleSheet.absoluteFill}
             onPress={() => setShowSaveModal(false)}
             activeOpacity={1}
           />
-          <View style={[s.modalSheet, { backgroundColor: colors.background }]}>
-            <View style={[s.modalHandle, { backgroundColor: colors.border }]} />
-            <Text style={[s.modalTitle, { color: colors.foreground }]}>
+          <View style={[s.sheet, { backgroundColor: colors.background }]}>
+            <View style={[s.handle, { backgroundColor: colors.border }]} />
+            <Text style={[s.sheetTitle, { color: colors.foreground }]}>
               Save to Notes
             </Text>
-            <Text style={[s.modalSub, { color: colors.mutedForeground }]} numberOfLines={2}>
+            <Text
+              style={[s.sheetSub, { color: colors.mutedForeground }]}
+              numberOfLines={2}
+            >
               {savingArticle.title}
             </Text>
-
-            <Text style={[s.modalLabel, { color: colors.mutedForeground }]}>
+            <Text style={[s.sheetLabel, { color: colors.mutedForeground }]}>
               Save under Subject
             </Text>
             <ScrollView
@@ -482,29 +611,21 @@ export default function CurrentAffairsScreen() {
                 );
               })}
             </ScrollView>
-
-            <View style={s.modalBtnRow}>
+            <View style={s.sheetBtns}>
               <TouchableOpacity
-                style={[s.modalCancel, { borderColor: colors.border }]}
+                style={[s.cancelBtn, { borderColor: colors.border }]}
                 onPress={() => setShowSaveModal(false)}
               >
-                <Text style={[s.modalCancelText, { color: colors.mutedForeground }]}>
+                <Text style={[s.cancelText, { color: colors.mutedForeground }]}>
                   Cancel
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[s.modalSave, { backgroundColor: colors.primary }]}
+                style={[s.confirmBtn, { backgroundColor: colors.primary }]}
                 onPress={confirmSave}
-                disabled={isSaving}
               >
-                {isSaving ? (
-                  <ActivityIndicator color="#fff" size="small" />
-                ) : (
-                  <>
-                    <Feather name="bookmark" size={15} color="#fff" />
-                    <Text style={s.modalSaveText}>Save to Notes</Text>
-                  </>
-                )}
+                <Feather name="bookmark" size={15} color="#fff" />
+                <Text style={s.confirmText}>Save to Notes</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -514,6 +635,149 @@ export default function CurrentAffairsScreen() {
   );
 }
 
+// ─── Markdown styles builder ──────────────────────────────────────────────────
+function buildMdStyles(
+  fg: string,
+  muted: string,
+  primary: string,
+  card: string,
+  border: string,
+) {
+  return StyleSheet.create({
+    body: {
+      fontSize: 15,
+      lineHeight: 26,
+      color: fg,
+      fontFamily: "Inter_400Regular",
+    },
+    heading1: {
+      fontSize: 20,
+      fontFamily: "Inter_700Bold",
+      color: fg,
+      marginTop: 20,
+      marginBottom: 8,
+    },
+    heading2: {
+      fontSize: 17,
+      fontFamily: "Inter_700Bold",
+      color: fg,
+      marginTop: 18,
+      marginBottom: 6,
+    },
+    heading3: {
+      fontSize: 15,
+      fontFamily: "Inter_600SemiBold",
+      color: fg,
+      marginTop: 14,
+      marginBottom: 4,
+    },
+    strong: {
+      fontFamily: "Inter_700Bold",
+      color: fg,
+    },
+    em: {
+      fontStyle: "italic",
+      color: muted,
+    },
+    bullet_list: { marginBottom: 8 },
+    ordered_list: { marginBottom: 8 },
+    list_item: {
+      marginBottom: 4,
+      flexDirection: "row",
+    },
+    bullet_list_icon: {
+      color: primary,
+      fontSize: 16,
+      marginRight: 6,
+      marginTop: 2,
+    },
+    ordered_list_icon: {
+      color: primary,
+      fontSize: 14,
+      fontFamily: "Inter_600SemiBold",
+      marginRight: 6,
+      marginTop: 2,
+    },
+    blockquote: {
+      backgroundColor: primary + "10",
+      borderLeftColor: primary,
+      borderLeftWidth: 4,
+      paddingLeft: 14,
+      paddingVertical: 8,
+      marginVertical: 8,
+      borderRadius: 4,
+    },
+    code_inline: {
+      backgroundColor: card,
+      color: primary,
+      paddingHorizontal: 5,
+      paddingVertical: 1,
+      borderRadius: 4,
+      fontSize: 13,
+      fontFamily: "Inter_500Medium",
+    },
+    fence: {
+      backgroundColor: card,
+      borderRadius: 8,
+      padding: 12,
+      marginVertical: 8,
+    },
+    hr: {
+      backgroundColor: border,
+      height: 1,
+      marginVertical: 16,
+    },
+    paragraph: {
+      marginBottom: 12,
+    },
+  });
+}
+
+// ─── Article modal styles ──────────────────────────────────────────────────────
+const ms = StyleSheet.create({
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    gap: 10,
+  },
+  closeBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  sourcePill: {
+    flex: 1,
+    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    alignItems: "center",
+  },
+  sourceLabel: { fontSize: 12, fontFamily: "Inter_700Bold" },
+  saveBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    borderWidth: 1,
+    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  saveBtnText: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
+  body: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 60 },
+  dateText: { fontSize: 12, fontFamily: "Inter_500Medium", marginBottom: 8 },
+  title: { fontSize: 20, fontFamily: "Inter_700Bold", lineHeight: 28, marginBottom: 12 },
+  tagRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 12 },
+  tag: { borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4 },
+  tagText: { fontSize: 11, fontFamily: "Inter_500Medium" },
+  divider: { height: 1, marginBottom: 16 },
+});
+
+// ─── Screen styles ─────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
   root: { flex: 1 },
 
@@ -527,129 +791,102 @@ const s = StyleSheet.create({
   },
   headerTitle: { fontSize: 24, fontFamily: "Inter_700Bold" },
   headerSub: { fontSize: 12, fontFamily: "Inter_400Regular", marginTop: 2 },
-  countBadge: {
-    borderRadius: 20,
-    paddingHorizontal: 12,
-    paddingVertical: 5,
-  },
+  countBadge: { borderRadius: 20, paddingHorizontal: 12, paddingVertical: 5 },
   countText: { fontSize: 12, fontFamily: "Inter_700Bold" },
 
-  stripWrapper: { paddingBottom: 4 },
-  stripContent: { paddingHorizontal: 16, gap: 8 },
+  toggleRow: {
+    flexDirection: "row",
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    gap: 8,
+    borderBottomWidth: 1,
+  },
+  toggleBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 10,
+    borderRadius: 12,
+    borderWidth: 1.5,
+  },
+  toggleLabel: {
+    fontSize: 12,
+    fontFamily: "Inter_700Bold",
+    textAlign: "center",
+  },
+  toggleCount: {
+    borderRadius: 10,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  toggleCountText: { fontSize: 10, fontFamily: "Inter_700Bold" },
+
+  strip: { maxHeight: 90 },
+  stripContent: { paddingHorizontal: 14, paddingVertical: 10, gap: 8 },
   dateCell: {
     alignItems: "center",
     paddingHorizontal: 10,
     paddingVertical: 8,
     minWidth: 52,
-    gap: 2,
+    gap: 1,
   },
-  dateCellWeekday: { fontSize: 10, fontFamily: "Inter_500Medium", textTransform: "uppercase" },
-  dateCellDay: { fontSize: 20, fontFamily: "Inter_700Bold", lineHeight: 26 },
-  dateCellMonth: { fontSize: 10, fontFamily: "Inter_500Medium" },
-  dot: { width: 5, height: 5, borderRadius: 3, marginTop: 3 },
+  weekday: { fontSize: 10, fontFamily: "Inter_500Medium", textTransform: "uppercase" },
+  day: { fontSize: 20, fontFamily: "Inter_700Bold", lineHeight: 26 },
+  month: { fontSize: 10, fontFamily: "Inter_500Medium" },
+  dot: { width: 5, height: 5, borderRadius: 3, marginTop: 2 },
 
-  filterScroll: { maxHeight: 46 },
-  filterRow: { paddingHorizontal: 16, gap: 8, paddingVertical: 4 },
-  filterPill: {
-    borderRadius: 20,
-    borderWidth: 1,
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-  },
-  filterPillText: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
+  listContent: { padding: 14, paddingBottom: 110, gap: 12 },
 
-  dateHeadingRow: { paddingHorizontal: 20, paddingVertical: 8 },
-  dateHeading: { fontSize: 15, fontFamily: "Inter_700Bold" },
-
-  listContent: { paddingHorizontal: 16, paddingBottom: 110, gap: 12 },
-
-  articleCard: {
+  card: {
     borderRadius: 16,
     borderWidth: 1,
-    padding: 16,
-    gap: 10,
-  },
-  articleHeader: {
     flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
+    overflow: "hidden",
   },
-  sourceBadge: {
-    borderRadius: 20,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-  },
+  accentBar: { width: 4 },
+  cardInner: { flex: 1, padding: 14, gap: 8 },
+  cardTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  sourcePill: { borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4 },
   sourceText: { fontSize: 11, fontFamily: "Inter_700Bold" },
-  saveBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    borderWidth: 1,
-    borderRadius: 20,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-  },
-  saveBtnText: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
-  articleTitle: { fontSize: 15, fontFamily: "Inter_700Bold", lineHeight: 22 },
-  tagRow: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
+  saveBtn: { padding: 6, borderRadius: 20, borderWidth: 1 },
+  cardTitle: { fontSize: 15, fontFamily: "Inter_700Bold", lineHeight: 22 },
+  tagRow: { flexDirection: "row", flexWrap: "wrap", gap: 5 },
   tag: { borderRadius: 20, paddingHorizontal: 8, paddingVertical: 3 },
   tagText: { fontSize: 11, fontFamily: "Inter_500Medium" },
-  articleContent: { fontSize: 13, fontFamily: "Inter_400Regular", lineHeight: 21 },
-  expandBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    alignSelf: "flex-start",
-    marginTop: 2,
-  },
-  expandText: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
+  preview: { fontSize: 13, fontFamily: "Inter_400Regular", lineHeight: 20 },
+  readMore: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 2 },
+  readMoreText: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
 
-  centeredState: {
+  center: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
     padding: 32,
     gap: 12,
   },
-  stateText: {
-    fontSize: 14,
-    fontFamily: "Inter_400Regular",
-    textAlign: "center",
-    lineHeight: 21,
-  },
-  emptyIcon: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 4,
-  },
+  stateText: { fontSize: 14, fontFamily: "Inter_400Regular", textAlign: "center", lineHeight: 21 },
+  emptyIcon: { width: 68, height: 68, borderRadius: 34, alignItems: "center", justifyContent: "center", marginBottom: 4 },
   emptyTitle: { fontSize: 17, fontFamily: "Inter_700Bold" },
-  retryBtn: { borderRadius: 12, paddingHorizontal: 24, paddingVertical: 10, marginTop: 4 },
+  retryBtn: { borderRadius: 12, paddingHorizontal: 24, paddingVertical: 10 },
   retryText: { color: "#fff", fontFamily: "Inter_700Bold", fontSize: 14 },
 
-  modalOverlay: {
+  overlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: "rgba(0,0,0,0.45)",
     justifyContent: "flex-end",
   },
-  modalSheet: {
+  sheet: {
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     padding: 20,
     paddingBottom: 40,
   },
-  modalHandle: {
-    width: 36,
-    height: 4,
-    borderRadius: 2,
-    alignSelf: "center",
-    marginBottom: 16,
-  },
-  modalTitle: { fontSize: 17, fontFamily: "Inter_700Bold", marginBottom: 4 },
-  modalSub: { fontSize: 13, fontFamily: "Inter_400Regular", lineHeight: 19, marginBottom: 16 },
-  modalLabel: {
+  handle: { width: 36, height: 4, borderRadius: 2, alignSelf: "center", marginBottom: 16 },
+  sheetTitle: { fontSize: 17, fontFamily: "Inter_700Bold", marginBottom: 4 },
+  sheetSub: { fontSize: 13, fontFamily: "Inter_400Regular", lineHeight: 19, marginBottom: 16 },
+  sheetLabel: {
     fontSize: 11,
     fontFamily: "Inter_600SemiBold",
     textTransform: "uppercase",
@@ -657,30 +894,11 @@ const s = StyleSheet.create({
     marginBottom: 10,
   },
   subjectRow: { gap: 8, paddingVertical: 2 },
-  subjectPill: {
-    borderRadius: 20,
-    borderWidth: 1,
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-  },
+  subjectPill: { borderRadius: 20, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 7 },
   subjectPillText: { fontSize: 13, fontFamily: "Inter_500Medium" },
-  modalBtnRow: { flexDirection: "row", gap: 10 },
-  modalCancel: {
-    flex: 1,
-    borderWidth: 1,
-    borderRadius: 12,
-    paddingVertical: 13,
-    alignItems: "center",
-  },
-  modalCancelText: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
-  modalSave: {
-    flex: 2,
-    borderRadius: 12,
-    paddingVertical: 13,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-  },
-  modalSaveText: { fontSize: 15, fontFamily: "Inter_700Bold", color: "#fff" },
+  sheetBtns: { flexDirection: "row", gap: 10 },
+  cancelBtn: { flex: 1, borderWidth: 1, borderRadius: 12, paddingVertical: 13, alignItems: "center" },
+  cancelText: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
+  confirmBtn: { flex: 2, borderRadius: 12, paddingVertical: 13, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
+  confirmText: { fontSize: 15, fontFamily: "Inter_700Bold", color: "#fff" },
 });
