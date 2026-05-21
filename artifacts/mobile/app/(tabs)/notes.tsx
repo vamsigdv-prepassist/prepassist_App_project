@@ -1,8 +1,11 @@
 import { Feather } from "@expo/vector-icons";
+import * as DocumentPicker from "expo-document-picker";
+import * as FileSystem from "expo-file-system";
 import * as Haptics from "expo-haptics";
 import * as ImagePicker from "expo-image-picker";
 import React, { useMemo, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
   Image,
   KeyboardAvoidingView,
@@ -25,6 +28,12 @@ import {
   useApp,
 } from "@/contexts/AppContext";
 import { useColors } from "@/hooks/useColors";
+import {
+  notesExtractOcr,
+  notesExtractPdf,
+  notesExtractUrl,
+  notesGenerate,
+} from "@/lib/ai";
 
 const SUBJECT_ACCENT: Record<string, string> = {
   Polity: "#4F39F6",
@@ -83,6 +92,12 @@ export default function NotesScreen() {
   const [addContent, setAddContent] = useState("");
   const [addTags, setAddTags] = useState("");
   const [addImage, setAddImage] = useState<string | null>(null);
+
+  type AddMode = "type" | "camera" | "url" | "pdf" | "generate";
+  const [addMode, setAddMode] = useState<AddMode>("type");
+  const [addUrl, setAddUrl] = useState("");
+  const [addTopic, setAddTopic] = useState("");
+  const [isExtracting, setIsExtracting] = useState(false);
 
   const [editTitle, setEditTitle] = useState("");
   const [editContent, setEditContent] = useState("");
@@ -209,6 +224,136 @@ export default function NotesScreen() {
     if (!res.canceled && res.assets[0]) setAddImage(res.assets[0].uri);
   };
 
+  // ── Extraction handlers ──────────────────────────────────────────────────
+
+  const captureForOcr = async () => {
+    const perm = await ImagePicker.requestCameraPermissionsAsync();
+    if (!perm.granted) {
+      Alert.alert("Permission needed", "Camera access is required.");
+      return;
+    }
+    const res = await ImagePicker.launchCameraAsync({ quality: 0.85, base64: true });
+    if (res.canceled || !res.assets[0]) return;
+    const asset = res.assets[0];
+    setAddImage(asset.uri);
+    setIsExtracting(true);
+    try {
+      const b64 = asset.base64
+        ? `data:image/jpeg;base64,${asset.base64}`
+        : `data:image/jpeg;base64,${await FileSystem.readAsStringAsync(asset.uri, { encoding: "base64" })}`;
+      const text = await notesExtractOcr(b64);
+      if (text) setAddContent(text);
+    } catch (e: any) {
+      Alert.alert("OCR failed", e?.message ?? "Could not read image. Please try again.");
+    } finally {
+      setIsExtracting(false);
+    }
+  };
+
+  const galleryForOcr = async () => {
+    const res = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      quality: 0.85,
+      base64: true,
+    });
+    if (res.canceled || !res.assets[0]) return;
+    const asset = res.assets[0];
+    setAddImage(asset.uri);
+    setIsExtracting(true);
+    try {
+      const b64 = asset.base64
+        ? `data:image/jpeg;base64,${asset.base64}`
+        : `data:image/jpeg;base64,${await FileSystem.readAsStringAsync(asset.uri, { encoding: "base64" })}`;
+      const text = await notesExtractOcr(b64);
+      if (text) setAddContent(text);
+    } catch (e: any) {
+      Alert.alert("OCR failed", e?.message ?? "Could not read image. Please try again.");
+    } finally {
+      setIsExtracting(false);
+    }
+  };
+
+  const extractFromUrl = async () => {
+    if (!addUrl.trim().startsWith("http")) {
+      Alert.alert("Invalid URL", "Please enter a valid URL starting with http or https.");
+      return;
+    }
+    setIsExtracting(true);
+    try {
+      const { text, title } = await notesExtractUrl(addUrl.trim());
+      if (text) setAddContent(text);
+      if (title && !addTitle.trim()) setAddTitle(title);
+    } catch (e: any) {
+      Alert.alert("Extraction failed", e?.message ?? "Could not extract content from that URL.");
+    } finally {
+      setIsExtracting(false);
+    }
+  };
+
+  const pickPdfForExtraction = async () => {
+    const res = await DocumentPicker.getDocumentAsync({
+      type: ["application/pdf", "application/msword",
+             "application/vnd.openxmlformats-officedocument.wordprocessingml.document"],
+      copyToCacheDirectory: true,
+    });
+    if (res.canceled || !res.assets?.[0]) return;
+    const asset = res.assets[0];
+    setIsExtracting(true);
+    try {
+      let pdfBase64: string;
+      if (Platform.OS === "web") {
+        const blob = await fetch(asset.uri).then((r) => r.blob());
+        pdfBase64 = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve((reader.result as string).split(",")[1] ?? "");
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        });
+      } else {
+        pdfBase64 = await FileSystem.readAsStringAsync(asset.uri, {
+          encoding: "base64",
+        });
+      }
+      const { text } = await notesExtractPdf(pdfBase64);
+      if (text) setAddContent(text);
+      if (!addTitle.trim() && asset.name) {
+        setAddTitle(asset.name.replace(/\.(pdf|docx?)$/i, ""));
+      }
+    } catch (e: any) {
+      Alert.alert("Extraction failed", e?.message ?? "Could not read the document.");
+    } finally {
+      setIsExtracting(false);
+    }
+  };
+
+  const generateNotes = async () => {
+    if (!addTopic.trim()) {
+      Alert.alert("Enter a topic", "Please type a topic to generate notes for.");
+      return;
+    }
+    setIsExtracting(true);
+    try {
+      const { text, title } = await notesGenerate(addTopic.trim());
+      if (text) setAddContent(text);
+      if (!addTitle.trim()) setAddTitle(title || addTopic.trim());
+    } catch (e: any) {
+      Alert.alert("Generation failed", e?.message ?? "Could not generate notes. Please try again.");
+    } finally {
+      setIsExtracting(false);
+    }
+  };
+
+  const resetAddModal = () => {
+    setAddTitle("");
+    setAddContent("");
+    setAddTags("");
+    setAddImage(null);
+    setAddUrl("");
+    setAddTopic("");
+    setAddMode("type");
+    setIsExtracting(false);
+  };
+
   const saveNote = () => {
     if (!addTitle.trim() || !activeSubject) return;
     const tags = addTags
@@ -224,10 +369,7 @@ export default function NotesScreen() {
       imageUri: addImage ?? undefined,
     });
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    setAddTitle("");
-    setAddContent("");
-    setAddTags("");
-    setAddImage(null);
+    resetAddModal();
     setShowAddModal(false);
   };
 
@@ -431,20 +573,214 @@ export default function NotesScreen() {
       </ScrollView>
 
       {/* Add Note Modal */}
-      <Modal visible={showAddModal} animationType="slide" presentationStyle="pageSheet">
+      <Modal
+        visible={showAddModal}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onDismiss={resetAddModal}
+      >
         <KeyboardAvoidingView
           style={{ flex: 1 }}
           behavior={Platform.OS === "ios" ? "padding" : undefined}
         >
           <SafeAreaView style={[s.modal, { backgroundColor: colors.background }]}>
+            {/* Header */}
             <View style={s.modalHeader}>
               <Text style={[s.modalTitle, { color: colors.foreground }]}>New Note</Text>
-              <TouchableOpacity onPress={() => setShowAddModal(false)} hitSlop={8}>
+              <TouchableOpacity
+                onPress={() => { setShowAddModal(false); resetAddModal(); }}
+                hitSlop={8}
+              >
                 <Feather name="x" size={22} color={colors.foreground} />
               </TouchableOpacity>
             </View>
 
-            <ScrollView contentContainerStyle={s.modalScroll}>
+            {/* Mode tabs */}
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={s.modeTabs}
+            >
+              {(
+                [
+                  { key: "type", icon: "edit-2", label: "Type" },
+                  { key: "camera", icon: "camera", label: "Camera" },
+                  { key: "url", icon: "globe", label: "Web URL" },
+                  { key: "pdf", icon: "file-text", label: "PDF / Doc" },
+                  { key: "generate", icon: "zap", label: "AI Generate" },
+                ] as { key: AddMode; icon: string; label: string }[]
+              ).map((tab) => (
+                <TouchableOpacity
+                  key={tab.key}
+                  style={[
+                    s.modeTab,
+                    { borderColor: colors.border },
+                    addMode === tab.key && s.modeTabActive,
+                  ]}
+                  onPress={() => setAddMode(tab.key)}
+                >
+                  <Feather
+                    name={tab.icon as any}
+                    size={14}
+                    color={addMode === tab.key ? "#fff" : colors.mutedForeground}
+                  />
+                  <Text
+                    style={[
+                      s.modeTabText,
+                      { color: addMode === tab.key ? "#fff" : colors.mutedForeground },
+                    ]}
+                  >
+                    {tab.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+
+            <ScrollView contentContainerStyle={s.modalScroll} keyboardShouldPersistTaps="handled">
+
+              {/* ── Source-specific input ── */}
+
+              {addMode === "camera" && (
+                <View style={s.sourceBlock}>
+                  <Text style={[s.sourceHint, { color: colors.mutedForeground }]}>
+                    Capture your handwritten notes — AI will extract the text automatically.
+                  </Text>
+                  {addImage && (
+                    <View style={s.imagePreviewWrap}>
+                      <Image source={{ uri: addImage }} style={s.imagePreview} />
+                      <TouchableOpacity style={s.removeImgBtn} onPress={() => setAddImage(null)}>
+                        <Feather name="x-circle" size={20} color="#fff" />
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                  {isExtracting ? (
+                    <View style={s.extractingRow}>
+                      <ActivityIndicator color={colors.primary} />
+                      <Text style={[s.extractingText, { color: colors.mutedForeground }]}>
+                        Reading handwriting…
+                      </Text>
+                    </View>
+                  ) : (
+                    <View style={s.imageRow}>
+                      <TouchableOpacity
+                        style={[s.imageBtn, { borderColor: colors.border }]}
+                        onPress={captureForOcr}
+                      >
+                        <Feather name="camera" size={18} color={colors.primary} />
+                        <Text style={[s.imageBtnText, { color: colors.primary }]}>Camera</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[s.imageBtn, { borderColor: colors.border }]}
+                        onPress={galleryForOcr}
+                      >
+                        <Feather name="image" size={18} color={colors.primary} />
+                        <Text style={[s.imageBtnText, { color: colors.primary }]}>Gallery</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                </View>
+              )}
+
+              {addMode === "url" && (
+                <View style={s.sourceBlock}>
+                  <Text style={[s.sourceHint, { color: colors.mutedForeground }]}>
+                    Paste any article or website URL — AI will extract and structure the content.
+                  </Text>
+                  <View style={s.urlRow}>
+                    <TextInput
+                      style={[s.urlInput, { color: colors.foreground, borderColor: colors.border }]}
+                      placeholder="https://..."
+                      placeholderTextColor={colors.mutedForeground}
+                      value={addUrl}
+                      onChangeText={setAddUrl}
+                      autoCapitalize="none"
+                      keyboardType="url"
+                      returnKeyType="go"
+                      onSubmitEditing={extractFromUrl}
+                    />
+                    <TouchableOpacity
+                      style={[s.urlBtn, { backgroundColor: colors.primary }, isExtracting && { opacity: 0.5 }]}
+                      onPress={extractFromUrl}
+                      disabled={isExtracting}
+                    >
+                      {isExtracting ? (
+                        <ActivityIndicator color="#fff" size="small" />
+                      ) : (
+                        <Feather name="arrow-right" size={18} color="#fff" />
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                  {isExtracting && (
+                    <Text style={[s.extractingText, { color: colors.mutedForeground, marginTop: 8 }]}>
+                      Extracting content from URL…
+                    </Text>
+                  )}
+                </View>
+              )}
+
+              {addMode === "pdf" && (
+                <View style={s.sourceBlock}>
+                  <Text style={[s.sourceHint, { color: colors.mutedForeground }]}>
+                    Upload a PDF or Word document — AI will convert it into clean study notes.
+                  </Text>
+                  {isExtracting ? (
+                    <View style={s.extractingRow}>
+                      <ActivityIndicator color={colors.primary} />
+                      <Text style={[s.extractingText, { color: colors.mutedForeground }]}>
+                        Extracting document content…
+                      </Text>
+                    </View>
+                  ) : (
+                    <TouchableOpacity
+                      style={[s.uploadBtn, { borderColor: colors.primary }]}
+                      onPress={pickPdfForExtraction}
+                    >
+                      <Feather name="upload-cloud" size={22} color={colors.primary} />
+                      <Text style={[s.uploadBtnText, { color: colors.primary }]}>
+                        Choose PDF or Word File
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              )}
+
+              {addMode === "generate" && (
+                <View style={s.sourceBlock}>
+                  <Text style={[s.sourceHint, { color: colors.mutedForeground }]}>
+                    Enter any UPSC topic — AI will generate comprehensive study notes instantly.
+                  </Text>
+                  <View style={s.urlRow}>
+                    <TextInput
+                      style={[s.urlInput, { color: colors.foreground, borderColor: colors.border }]}
+                      placeholder="e.g. Fundamental Rights, Federalism…"
+                      placeholderTextColor={colors.mutedForeground}
+                      value={addTopic}
+                      onChangeText={setAddTopic}
+                      returnKeyType="go"
+                      onSubmitEditing={generateNotes}
+                    />
+                    <TouchableOpacity
+                      style={[s.urlBtn, { backgroundColor: colors.primary }, isExtracting && { opacity: 0.5 }]}
+                      onPress={generateNotes}
+                      disabled={isExtracting}
+                    >
+                      {isExtracting ? (
+                        <ActivityIndicator color="#fff" size="small" />
+                      ) : (
+                        <Feather name="zap" size={18} color="#fff" />
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                  {isExtracting && (
+                    <Text style={[s.extractingText, { color: colors.mutedForeground, marginTop: 8 }]}>
+                      Generating notes with AI…
+                    </Text>
+                  )}
+                </View>
+              )}
+
+              {/* ── Common fields (always shown) ── */}
+
               <Text style={s.fieldLabel}>Title *</Text>
               <TextInput
                 style={[s.fieldInput, { color: colors.foreground, borderColor: colors.border }]}
@@ -454,10 +790,16 @@ export default function NotesScreen() {
                 onChangeText={setAddTitle}
               />
 
-              <Text style={s.fieldLabel}>Content</Text>
+              <Text style={s.fieldLabel}>
+                {addMode === "type" ? "Content" : "Extracted Content (edit freely)"}
+              </Text>
               <TextInput
                 style={[s.fieldInput, s.fieldTextarea, { color: colors.foreground, borderColor: colors.border }]}
-                placeholder="Write your notes here..."
+                placeholder={
+                  addMode === "type"
+                    ? "Write your notes here…"
+                    : "Content will appear here after extraction — you can edit it."
+                }
                 placeholderTextColor={colors.mutedForeground}
                 value={addContent}
                 onChangeText={setAddContent}
@@ -475,34 +817,36 @@ export default function NotesScreen() {
                 autoCapitalize="none"
               />
 
-              <Text style={s.fieldLabel}>Attach Image</Text>
-              {addImage ? (
-                <View style={s.imagePreviewWrap}>
-                  <Image source={{ uri: addImage }} style={s.imagePreview} />
-                  <TouchableOpacity
-                    style={s.removeImgBtn}
-                    onPress={() => setAddImage(null)}
-                  >
-                    <Feather name="x-circle" size={20} color="#fff" />
-                  </TouchableOpacity>
-                </View>
-              ) : (
-                <View style={s.imageRow}>
-                  <TouchableOpacity
-                    style={[s.imageBtn, { borderColor: colors.border }]}
-                    onPress={pickImage}
-                  >
-                    <Feather name="image" size={18} color={colors.primary} />
-                    <Text style={[s.imageBtnText, { color: colors.primary }]}>Gallery</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[s.imageBtn, { borderColor: colors.border }]}
-                    onPress={captureImage}
-                  >
-                    <Feather name="camera" size={18} color={colors.primary} />
-                    <Text style={[s.imageBtnText, { color: colors.primary }]}>Camera</Text>
-                  </TouchableOpacity>
-                </View>
+              {/* Image attach (type mode only) */}
+              {addMode === "type" && (
+                <>
+                  <Text style={s.fieldLabel}>Attach Image</Text>
+                  {addImage ? (
+                    <View style={s.imagePreviewWrap}>
+                      <Image source={{ uri: addImage }} style={s.imagePreview} />
+                      <TouchableOpacity style={s.removeImgBtn} onPress={() => setAddImage(null)}>
+                        <Feather name="x-circle" size={20} color="#fff" />
+                      </TouchableOpacity>
+                    </View>
+                  ) : (
+                    <View style={s.imageRow}>
+                      <TouchableOpacity
+                        style={[s.imageBtn, { borderColor: colors.border }]}
+                        onPress={pickImage}
+                      >
+                        <Feather name="image" size={18} color={colors.primary} />
+                        <Text style={[s.imageBtnText, { color: colors.primary }]}>Gallery</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[s.imageBtn, { borderColor: colors.border }]}
+                        onPress={captureImage}
+                      >
+                        <Feather name="camera" size={18} color={colors.primary} />
+                        <Text style={[s.imageBtnText, { color: colors.primary }]}>Camera</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                </>
               )}
             </ScrollView>
 
@@ -1166,6 +1510,84 @@ function styles(colors: ReturnType<typeof useColors>) {
       fontSize: 15,
       fontFamily: "Inter_400Regular",
       lineHeight: 24,
+    },
+    modeTabs: {
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+      gap: 8,
+      flexDirection: "row",
+    },
+    modeTab: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 5,
+      paddingHorizontal: 12,
+      paddingVertical: 7,
+      borderRadius: 20,
+      borderWidth: 1,
+    },
+    modeTabActive: {
+      backgroundColor: "#4F39F6",
+      borderColor: "#4F39F6",
+    },
+    modeTabText: {
+      fontSize: 12,
+      fontFamily: "Inter_600SemiBold",
+    },
+    sourceBlock: {
+      marginBottom: 4,
+      gap: 10,
+    },
+    sourceHint: {
+      fontSize: 13,
+      fontFamily: "Inter_400Regular",
+      lineHeight: 18,
+      marginBottom: 4,
+    },
+    urlRow: {
+      flexDirection: "row",
+      gap: 8,
+      alignItems: "center",
+    },
+    urlInput: {
+      flex: 1,
+      borderWidth: 1,
+      borderRadius: 10,
+      paddingHorizontal: 14,
+      paddingVertical: 11,
+      fontSize: 14,
+      fontFamily: "Inter_400Regular",
+    },
+    urlBtn: {
+      width: 44,
+      height: 44,
+      borderRadius: 10,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    uploadBtn: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 10,
+      borderWidth: 1.5,
+      borderStyle: "dashed",
+      borderRadius: 12,
+      paddingVertical: 24,
+    },
+    uploadBtnText: {
+      fontSize: 15,
+      fontFamily: "Inter_600SemiBold",
+    },
+    extractingRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 10,
+      paddingVertical: 12,
+    },
+    extractingText: {
+      fontSize: 13,
+      fontFamily: "Inter_400Regular",
     },
   });
 }

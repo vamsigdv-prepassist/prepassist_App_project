@@ -392,6 +392,27 @@ export async function extractQuizFromPdf(
     }));
 }
 
+// ── Notes extraction helpers ─────────────────────────────────────────────────
+
+export async function notesExtractOcr(base64Image: string): Promise<string> {
+  const { text } = await callApi<{ text: string }>("/ai/notes/extract-ocr", {
+    base64Image,
+  });
+  return text ?? "";
+}
+
+export async function notesExtractPdf(pdfBase64: string): Promise<{ text: string; pages?: number }> {
+  return callApi<{ text: string; pages?: number }>("/ai/notes/extract-pdf", { pdfBase64 });
+}
+
+export async function notesExtractUrl(url: string): Promise<{ text: string; title?: string }> {
+  return callApi<{ text: string; title?: string }>("/ai/notes/extract-url", { url });
+}
+
+export async function notesGenerate(topic: string): Promise<{ text: string; title: string }> {
+  return callApi<{ text: string; title: string }>("/ai/notes/generate", { topic });
+}
+
 export function pickRandomTopic() {
   const topics = [
     "Polity — Fundamental Rights",
