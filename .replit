@@ -34,3 +34,9 @@ externalPort = 3001
 [[ports]]
 localPort = 24507
 externalPort = 3000
+
+[userenv]
+
+[userenv.shared]
+FIREBASE_API_KEY = "AIzaSyCi5nA-ZtNLgVDM0UIJj7cWrPQhulEPy70"
+FIREBASE_PROJECT_ID = "prepassist-v2"

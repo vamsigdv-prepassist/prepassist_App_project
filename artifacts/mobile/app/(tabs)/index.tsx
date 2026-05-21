@@ -12,6 +12,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import FlashcardCarousel from "@/components/FlashcardCarousel";
 import { Card, Pill, ProgressBar, SectionHeader } from "@/components/ui";
 import { useApp } from "@/contexts/AppContext";
 import { useColors } from "@/hooks/useColors";
@@ -274,6 +275,9 @@ export default function HomeScreen() {
             ))}
           </View>
         </View>
+
+        {/* Flashcard carousel */}
+        <FlashcardCarousel />
 
         {/* Weekly chart */}
         <View style={{ paddingHorizontal: 20, marginTop: 28 }}>
