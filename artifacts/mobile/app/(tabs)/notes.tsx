@@ -4,6 +4,7 @@ import * as FileSystem from "expo-file-system";
 import * as Haptics from "expo-haptics";
 import * as ImagePicker from "expo-image-picker";
 import React, { useMemo, useRef, useState } from "react";
+import Markdown from "react-native-markdown-display";
 import {
   ActivityIndicator,
   Alert,
@@ -34,6 +35,109 @@ import {
   notesExtractUrl,
   notesGenerate,
 } from "@/lib/ai";
+
+function buildMarkdownStyles(colors: {
+  foreground: string;
+  mutedForeground: string;
+  primary: string;
+  border: string;
+  muted: string;
+}) {
+  return {
+    body: {
+      color: colors.foreground,
+      fontSize: 15,
+      lineHeight: 24,
+      fontFamily: "Inter_400Regular",
+    },
+    heading1: {
+      fontSize: 20,
+      fontFamily: "Inter_700Bold",
+      color: colors.foreground,
+      marginTop: 16,
+      marginBottom: 6,
+    },
+    heading2: {
+      fontSize: 17,
+      fontFamily: "Inter_700Bold",
+      color: colors.foreground,
+      marginTop: 14,
+      marginBottom: 4,
+    },
+    heading3: {
+      fontSize: 15,
+      fontFamily: "Inter_600SemiBold",
+      color: colors.foreground,
+      marginTop: 12,
+      marginBottom: 3,
+    },
+    strong: {
+      fontFamily: "Inter_700Bold",
+      color: colors.foreground,
+    },
+    em: {
+      fontFamily: "Inter_400Regular",
+      fontStyle: "italic" as const,
+    },
+    bullet_list: { marginBottom: 6 },
+    ordered_list: { marginBottom: 6 },
+    bullet_list_item: { marginBottom: 2 },
+    ordered_list_item: { marginBottom: 2 },
+    list_item: {
+      flexDirection: "row" as const,
+      alignItems: "flex-start" as const,
+    },
+    bullet_list_icon: {
+      color: colors.primary,
+      fontSize: 15,
+      marginRight: 6,
+      marginTop: 2,
+    },
+    code_inline: {
+      backgroundColor: colors.muted,
+      color: colors.primary,
+      borderRadius: 4,
+      paddingHorizontal: 5,
+      fontFamily: "Inter_500Medium",
+      fontSize: 13,
+    },
+    fence: {
+      backgroundColor: colors.muted,
+      borderRadius: 8,
+      padding: 12,
+      marginVertical: 8,
+    },
+    code_block: {
+      backgroundColor: colors.muted,
+      borderRadius: 8,
+      padding: 12,
+      fontFamily: "Inter_400Regular",
+      fontSize: 13,
+      color: colors.foreground,
+    },
+    blockquote: {
+      borderLeftWidth: 3,
+      borderLeftColor: colors.primary,
+      paddingLeft: 12,
+      marginLeft: 0,
+      color: colors.mutedForeground,
+    },
+    hr: {
+      backgroundColor: colors.border,
+      height: 1,
+      marginVertical: 12,
+    },
+    paragraph: { marginBottom: 8 },
+    link: { color: colors.primary },
+    table: { borderWidth: 1, borderColor: colors.border, borderRadius: 6 },
+    th: {
+      backgroundColor: colors.muted,
+      fontFamily: "Inter_700Bold",
+      padding: 8,
+    },
+    td: { padding: 8, borderTopWidth: 1, borderTopColor: colors.border },
+  };
+}
 
 const SUBJECT_ACCENT: Record<string, string> = {
   Polity: "#4F39F6",
@@ -98,6 +202,7 @@ export default function NotesScreen() {
   const [addUrl, setAddUrl] = useState("");
   const [addTopic, setAddTopic] = useState("");
   const [isExtracting, setIsExtracting] = useState(false);
+  const [showContentPreview, setShowContentPreview] = useState(false);
 
   const [editTitle, setEditTitle] = useState("");
   const [editContent, setEditContent] = useState("");
@@ -352,6 +457,7 @@ export default function NotesScreen() {
     setAddTopic("");
     setAddMode("type");
     setIsExtracting(false);
+    setShowContentPreview(false);
   };
 
   const saveNote = () => {
@@ -790,22 +896,60 @@ export default function NotesScreen() {
                 onChangeText={setAddTitle}
               />
 
-              <Text style={s.fieldLabel}>
-                {addMode === "type" ? "Content" : "Extracted Content (edit freely)"}
-              </Text>
-              <TextInput
-                style={[s.fieldInput, s.fieldTextarea, { color: colors.foreground, borderColor: colors.border }]}
-                placeholder={
-                  addMode === "type"
-                    ? "Write your notes here…"
-                    : "Content will appear here after extraction — you can edit it."
-                }
-                placeholderTextColor={colors.mutedForeground}
-                value={addContent}
-                onChangeText={setAddContent}
-                multiline
-                textAlignVertical="top"
-              />
+              {/* Content label + Edit/Preview toggle */}
+              <View style={s.contentLabelRow}>
+                <Text style={s.fieldLabel}>
+                  {addMode === "type" ? "Content" : "Extracted Content"}
+                </Text>
+                {addContent.length > 0 && (
+                  <View style={s.previewToggleRow}>
+                    <TouchableOpacity
+                      style={[
+                        s.previewToggleBtn,
+                        !showContentPreview && { backgroundColor: colors.primary },
+                      ]}
+                      onPress={() => setShowContentPreview(false)}
+                    >
+                      <Text style={[
+                        s.previewToggleText,
+                        { color: !showContentPreview ? "#fff" : colors.mutedForeground },
+                      ]}>Edit</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[
+                        s.previewToggleBtn,
+                        showContentPreview && { backgroundColor: colors.primary },
+                      ]}
+                      onPress={() => setShowContentPreview(true)}
+                    >
+                      <Text style={[
+                        s.previewToggleText,
+                        { color: showContentPreview ? "#fff" : colors.mutedForeground },
+                      ]}>Preview</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </View>
+
+              {showContentPreview && addContent.length > 0 ? (
+                <View style={[s.previewBox, { borderColor: colors.border }]}>
+                  <Markdown style={buildMarkdownStyles(colors)}>{addContent}</Markdown>
+                </View>
+              ) : (
+                <TextInput
+                  style={[s.fieldInput, s.fieldTextarea, { color: colors.foreground, borderColor: colors.border }]}
+                  placeholder={
+                    addMode === "type"
+                      ? "Write your notes here…"
+                      : "Content will appear here after extraction — you can edit it."
+                  }
+                  placeholderTextColor={colors.mutedForeground}
+                  value={addContent}
+                  onChangeText={(t) => { setAddContent(t); setShowContentPreview(false); }}
+                  multiline
+                  textAlignVertical="top"
+                />
+              )}
 
               <Text style={s.fieldLabel}>Tags (comma separated)</Text>
               <TextInput
@@ -958,9 +1102,9 @@ export default function NotesScreen() {
                         />
                       )}
                       {viewingNote.content ? (
-                        <Text style={[s.noteContent, { color: colors.foreground }]}>
+                        <Markdown style={buildMarkdownStyles(colors)}>
                           {viewingNote.content}
-                        </Text>
+                        </Markdown>
                       ) : (
                         <Text style={[s.noteContent, { color: colors.mutedForeground, fontStyle: "italic" }]}>
                           No text content.
@@ -1510,6 +1654,34 @@ function styles(colors: ReturnType<typeof useColors>) {
       fontSize: 15,
       fontFamily: "Inter_400Regular",
       lineHeight: 24,
+    },
+    contentLabelRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      marginTop: 14,
+      marginBottom: 6,
+    },
+    previewToggleRow: {
+      flexDirection: "row",
+      borderRadius: 8,
+      overflow: "hidden",
+      borderWidth: 1,
+      borderColor: "#4F39F6",
+    },
+    previewToggleBtn: {
+      paddingHorizontal: 12,
+      paddingVertical: 5,
+    },
+    previewToggleText: {
+      fontSize: 12,
+      fontFamily: "Inter_600SemiBold",
+    },
+    previewBox: {
+      borderWidth: 1,
+      borderRadius: 10,
+      padding: 14,
+      minHeight: 140,
     },
     modeTabs: {
       paddingHorizontal: 16,
