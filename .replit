@@ -40,3 +40,5 @@ externalPort = 3000
 [userenv.shared]
 FIREBASE_API_KEY = "AIzaSyCi5nA-ZtNLgVDM0UIJj7cWrPQhulEPy70"
 FIREBASE_PROJECT_ID = "prepassist-v2"
+SUPABASE_URL = "https://pjubvuvqzwhvqxeeubcv.supabase.co"
+SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBqdWJ2dXZxendodnF4ZWV1YmN2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjgxNDU0NjYsImV4cCI6MjA4MzcyMTQ2Nn0.S6c_saGG8tVNvAegb8e9eP3d5PbPlY0BLDnM0HR5n_0"

@@ -41,6 +41,10 @@ function NativeTabLayout() {
         <Icon sf={{ default: "bookmark", selected: "bookmark.fill" }} />
         <Label>Articles</Label>
       </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="current-affairs">
+        <Icon sf={{ default: "newspaper", selected: "newspaper.fill" }} />
+        <Label>News</Label>
+      </NativeTabs.Trigger>
     </NativeTabs>
   );
 }
@@ -160,6 +164,18 @@ function ClassicTabLayout() {
               <SymbolView name="bookmark" tintColor={color} size={24} />
             ) : (
               <Feather name="bookmark" size={22} color={color} />
+            ),
+        }}
+      />
+      <Tabs.Screen
+        name="current-affairs"
+        options={{
+          title: "News",
+          tabBarIcon: ({ color }) =>
+            isIOS ? (
+              <SymbolView name="newspaper" tintColor={color} size={24} />
+            ) : (
+              <Feather name="rss" size={22} color={color} />
             ),
         }}
       />
