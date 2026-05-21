@@ -21,7 +21,19 @@
       }
     },
     "android": {
-      "permissions": ["CAMERA", "READ_EXTERNAL_STORAGE"]
+      "permissions": ["CAMERA", "READ_EXTERNAL_STORAGE"],
+      "intentFilters": [
+        {
+          "action": "android.intent.action.SEND",
+          "data": [{ "mimeType": "text/plain" }],
+          "category": ["android.intent.category.DEFAULT"]
+        },
+        {
+          "action": "android.intent.action.SEND",
+          "data": [{ "mimeType": "text/*" }],
+          "category": ["android.intent.category.DEFAULT"]
+        }
+      ]
     },
     "web": {
       "favicon": "./assets/images/icon.png"

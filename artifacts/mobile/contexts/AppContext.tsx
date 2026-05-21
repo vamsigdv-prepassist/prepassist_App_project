@@ -81,6 +81,16 @@ export type TrackerNote = {
   createdAt: number;
 };
 
+export type SavedArticle = {
+  id: string;
+  url: string;
+  title: string;
+  savedAt: number;
+  content?: string;
+  extractedAt?: number;
+  noteIds?: string[];
+};
+
 export const CORE_SUBJECTS = [
   "Polity",
   "History",
@@ -143,6 +153,11 @@ type AppState = {
   addTrackerNote: (n: Omit<TrackerNote, "id" | "createdAt">) => TrackerNote;
   updateTrackerNote: (id: string, patch: Partial<TrackerNote>) => void;
   removeTrackerNote: (id: string) => void;
+
+  savedArticles: SavedArticle[];
+  addSavedArticle: (a: Omit<SavedArticle, "id" | "savedAt">) => SavedArticle;
+  updateSavedArticle: (id: string, patch: Partial<SavedArticle>) => void;
+  removeSavedArticle: (id: string) => void;
 
   optionalSubject: string | null;
   setOptionalSubject: (s: string | null) => void;
@@ -227,6 +242,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [evaluations, setEvaluations] = useState<MainsEvaluation[]>([]);
   const [quizzes, setQuizzes] = useState<QuizAttempt[]>([]);
   const [trackerNotes, setTrackerNotes] = useState<TrackerNote[]>([]);
+  const [savedArticles, setSavedArticles] = useState<SavedArticle[]>([]);
   const [optionalSubject, setOptionalSubjectState] = useState<string | null>(null);
   const [customSubjects, setCustomSubjects] = useState<string[]>([]);
 
@@ -249,6 +265,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             setEvaluations(parsed.evaluations);
           if (Array.isArray(parsed.quizzes)) setQuizzes(parsed.quizzes);
           if (Array.isArray(parsed.trackerNotes)) setTrackerNotes(parsed.trackerNotes);
+          if (Array.isArray(parsed.savedArticles)) setSavedArticles(parsed.savedArticles);
           if (parsed.optionalSubject) setOptionalSubjectState(parsed.optionalSubject);
           if (Array.isArray(parsed.customSubjects)) setCustomSubjects(parsed.customSubjects);
         }
@@ -272,6 +289,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       evaluations,
       quizzes,
       trackerNotes,
+      savedArticles,
       optionalSubject,
       customSubjects,
     };
@@ -286,6 +304,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     evaluations,
     quizzes,
     trackerNotes,
+    savedArticles,
     optionalSubject,
     customSubjects,
   ]);
@@ -390,6 +409,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setTrackerNotes((prev) => prev.filter((n) => n.id !== id));
   }, []);
 
+  const addSavedArticle = useCallback<AppState["addSavedArticle"]>((a) => {
+    const article: SavedArticle = { ...a, id: uid(), savedAt: Date.now() };
+    setSavedArticles((prev) => [article, ...prev]);
+    return article;
+  }, []);
+
+  const updateSavedArticle = useCallback<AppState["updateSavedArticle"]>((id, patch) => {
+    setSavedArticles((prev) => prev.map((a) => (a.id === id ? { ...a, ...patch } : a)));
+  }, []);
+
+  const removeSavedArticle = useCallback((id: string) => {
+    setSavedArticles((prev) => prev.filter((a) => a.id !== id));
+  }, []);
+
   const setOptionalSubject = useCallback((s: string | null) => {
     setOptionalSubjectState(s);
   }, []);
@@ -425,6 +458,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       addTrackerNote,
       updateTrackerNote,
       removeTrackerNote,
+      savedArticles,
+      addSavedArticle,
+      updateSavedArticle,
+      removeSavedArticle,
       optionalSubject,
       setOptionalSubject,
       customSubjects,
@@ -454,6 +491,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       addTrackerNote,
       updateTrackerNote,
       removeTrackerNote,
+      savedArticles,
+      addSavedArticle,
+      updateSavedArticle,
+      removeSavedArticle,
       optionalSubject,
       setOptionalSubject,
       customSubjects,
