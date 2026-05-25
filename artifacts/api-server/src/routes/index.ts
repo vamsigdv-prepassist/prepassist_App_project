@@ -4,6 +4,7 @@ import aiRouter from "./ai";
 import notesRouter from "./notes";
 import flashcardsRouter from "./flashcards";
 import currentAffairsRouter from "./currentAffairs";
+import trackerNotesRouter from "./trackerNotes";
 
 const router: IRouter = Router();
 
@@ -12,5 +13,6 @@ router.use(aiRouter);
 router.use(notesRouter);
 router.use(flashcardsRouter);
 router.use(currentAffairsRouter);
+router.use(trackerNotesRouter);
 
 export default router;

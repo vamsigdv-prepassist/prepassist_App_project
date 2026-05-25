@@ -3,7 +3,7 @@ import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system";
 import * as Haptics from "expo-haptics";
 import * as ImagePicker from "expo-image-picker";
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import Markdown from "react-native-markdown-display";
 import {
   ActivityIndicator,
@@ -28,7 +28,10 @@ import {
   TrackerNote,
   useApp,
 } from "@/contexts/AppContext";
+import { useAuth } from "@/contexts/AuthContext";
 import { useColors } from "@/hooks/useColors";
+import { useRouter } from "expo-router";
+import { useNotesSync } from "@/hooks/useNotesSync";
 import {
   notesExtractOcr,
   notesExtractPdf,
@@ -168,6 +171,9 @@ type SortOption = "newest" | "az" | "starred";
 
 export default function NotesScreen() {
   const colors = useColors();
+  const router = useRouter();
+  const { user, signOut } = useAuth();
+  const { fetchCloudNotes, createCloudNote, updateCloudNote, deleteCloudNote } = useNotesSync();
   const {
     trackerNotes,
     addTrackerNote,
@@ -179,6 +185,32 @@ export default function NotesScreen() {
     addCustomSubject,
     removeCustomSubject,
   } = useApp();
+
+  // On login, pull cloud notes and merge into local state (cloud wins for new ones)
+  const [synced, setSynced] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  useEffect(() => {
+    if (!user || synced) return;
+    (async () => {
+      setSyncing(true);
+      const cloudNotes = await fetchCloudNotes();
+      const localIds = new Set(trackerNotes.map((n) => n.id));
+      for (const cn of cloudNotes) {
+        if (!localIds.has(cn.id)) {
+          addTrackerNote({
+            title: cn.title,
+            content: cn.content,
+            subject: cn.subject,
+            tags: cn.tags,
+            isStarred: cn.isStarred,
+            imageUri: cn.imageUri,
+          });
+        }
+      }
+      setSynced(true);
+      setSyncing(false);
+    })();
+  }, [user]);
 
   const [activeSubject, setActiveSubject] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -271,29 +303,26 @@ export default function NotesScreen() {
       .split(",")
       .map((t) => t.trim())
       .filter(Boolean);
-    updateTrackerNote(viewingNote.id, {
+    const patch = {
       title: editTitle.trim() || viewingNote.title,
       content: editContent,
       tags,
-    });
+    };
+    updateTrackerNote(viewingNote.id, patch);
     setViewingNote((prev) =>
-      prev
-        ? {
-            ...prev,
-            title: editTitle.trim() || prev.title,
-            content: editContent,
-            tags,
-          }
-        : null,
+      prev ? { ...prev, ...patch } : null,
     );
     setIsEditing(false);
+    if (user) updateCloudNote(viewingNote.id, patch);
   };
 
   const toggleStar = (note: TrackerNote) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    updateTrackerNote(note.id, { isStarred: !note.isStarred });
+    const newStarred = !note.isStarred;
+    updateTrackerNote(note.id, { isStarred: newStarred });
     if (viewingNote?.id === note.id)
-      setViewingNote((prev) => (prev ? { ...prev, isStarred: !prev.isStarred } : null));
+      setViewingNote((prev) => (prev ? { ...prev, isStarred: newStarred } : null));
+    if (user) updateCloudNote(note.id, { isStarred: newStarred });
   };
 
   const confirmDelete = (note: TrackerNote) => {
@@ -306,6 +335,7 @@ export default function NotesScreen() {
         onPress: () => {
           removeTrackerNote(note.id);
           if (showViewModal) setShowViewModal(false);
+          if (user) deleteCloudNote(note.id);
         },
       },
     ]);
@@ -460,23 +490,32 @@ export default function NotesScreen() {
     setShowContentPreview(false);
   };
 
-  const saveNote = () => {
+  const saveNote = async () => {
     if (!addTitle.trim() || !activeSubject) return;
     const tags = addTags
       .split(",")
       .map((t) => t.trim())
       .filter(Boolean);
-    addTrackerNote({
+    const notePayload = {
       title: addTitle.trim(),
       content: addContent.trim(),
       subject: activeSubject,
       tags,
       isStarred: false,
       imageUri: addImage ?? undefined,
-    });
+    };
+    const localNote = addTrackerNote(notePayload);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     resetAddModal();
     setShowAddModal(false);
+    // Sync to cloud (fire-and-forget, update id if returned)
+    if (user) {
+      const cloudId = await createCloudNote(notePayload);
+      if (cloudId && cloudId !== localNote.id) {
+        // update local note id to match cloud id so future updates work
+        updateTrackerNote(localNote.id, { id: cloudId } as any);
+      }
+    }
   };
 
   const s = styles(colors);
@@ -507,6 +546,39 @@ export default function NotesScreen() {
           </TouchableOpacity>
         ) : null}
       </View>
+
+      {/* Cloud sync banner */}
+      {!user && !activeSubject && (
+        <TouchableOpacity
+          style={[s.syncBanner, { backgroundColor: colors.primary + "12", borderColor: colors.primary + "30" }]}
+          onPress={() => router.push("/login" as any)}
+        >
+          <Feather name="cloud-off" size={14} color={colors.primary} />
+          <Text style={[s.syncBannerText, { color: colors.primary }]}>
+            Sign in to sync notes across web & app
+          </Text>
+          <Feather name="arrow-right" size={14} color={colors.primary} />
+        </TouchableOpacity>
+      )}
+
+      {user && syncing && !activeSubject && (
+        <View style={[s.syncBanner, { backgroundColor: "#10B981" + "12", borderColor: "#10B981" + "30" }]}>
+          <Feather name="refresh-cw" size={14} color="#10B981" />
+          <Text style={[s.syncBannerText, { color: "#10B981" }]}>Syncing with cloud…</Text>
+        </View>
+      )}
+
+      {user && !syncing && !activeSubject && (
+        <View style={[s.syncBanner, { backgroundColor: "#10B981" + "12", borderColor: "#10B981" + "30" }]}>
+          <Feather name="cloud" size={14} color="#10B981" />
+          <Text style={[s.syncBannerText, { color: "#10B981" }]}>
+            Signed in · notes synced to cloud
+          </Text>
+          <TouchableOpacity onPress={() => { signOut(); setSynced(false); }}>
+            <Text style={{ fontSize: 12, fontFamily: "Inter_600SemiBold", color: "#10B981" }}>Sign out</Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
       {!activeSubject && (
         <View style={s.searchRow}>
@@ -1366,6 +1438,22 @@ function styles(colors: ReturnType<typeof useColors>) {
       backgroundColor: colors.primary,
       alignItems: "center",
       justifyContent: "center",
+    },
+    syncBanner: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+      marginHorizontal: 16,
+      marginBottom: 8,
+      paddingHorizontal: 14,
+      paddingVertical: 9,
+      borderRadius: 10,
+      borderWidth: 1,
+    },
+    syncBannerText: {
+      flex: 1,
+      fontSize: 12,
+      fontFamily: "Inter_500Medium",
     },
     searchRow: {
       flexDirection: "row",
