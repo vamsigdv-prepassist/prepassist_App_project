@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useRef } from "react";
 
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/lib/supabase";
@@ -20,6 +20,17 @@ export interface CloudNote {
   updated_at: string;
 }
 
+export interface NoteUpdate {
+  id: string;
+  note_id: string;
+  user_id: string;
+  title: string;
+  content: string;
+  source?: string | null;
+  status: "pending" | "merged" | "ignored";
+  created_at: string;
+}
+
 function cloudToLocal(n: CloudNote): TrackerNote {
   return {
     id: n.id,
@@ -30,6 +41,7 @@ function cloudToLocal(n: CloudNote): TrackerNote {
     isStarred: n.is_starred,
     imageUri: n.image_uri ?? undefined,
     createdAt: new Date(n.created_at).getTime(),
+    cloudId: n.id,
   };
 }
 
@@ -54,7 +66,6 @@ export function useNotesSync() {
   const { user } = useAuth();
   const syncing = useRef(false);
 
-  // Fetch all cloud notes for the current user
   const fetchCloudNotes = useCallback(async (): Promise<TrackerNote[]> => {
     if (!user) return [];
     try {
@@ -67,7 +78,6 @@ export function useNotesSync() {
     }
   }, [user]);
 
-  // Push a new note to the cloud, returns the cloud note's UUID
   const createCloudNote = useCallback(
     async (note: Omit<TrackerNote, "id" | "createdAt">): Promise<string | null> => {
       if (!user) return null;
@@ -93,7 +103,6 @@ export function useNotesSync() {
     [user],
   );
 
-  // Update an existing cloud note
   const updateCloudNote = useCallback(
     async (id: string, patch: Partial<TrackerNote>): Promise<void> => {
       if (!user) return;
@@ -116,7 +125,6 @@ export function useNotesSync() {
     [user],
   );
 
-  // Delete a note from cloud
   const deleteCloudNote = useCallback(
     async (id: string): Promise<void> => {
       if (!user) return;
@@ -129,5 +137,58 @@ export function useNotesSync() {
     [user],
   );
 
-  return { fetchCloudNotes, createCloudNote, updateCloudNote, deleteCloudNote, syncing };
+  // ── Note Updates (RAG-pushed updates from Vector DB) ─────────────────────
+
+  const fetchNoteUpdates = useCallback(async (): Promise<NoteUpdate[]> => {
+    if (!user) return [];
+    try {
+      const res = await authFetch("/tracker-notes/updates");
+      if (!res.ok) return [];
+      const { updates } = (await res.json()) as { updates: NoteUpdate[] };
+      return updates ?? [];
+    } catch {
+      return [];
+    }
+  }, [user]);
+
+  const mergeNoteUpdate = useCallback(
+    async (updateId: string): Promise<void> => {
+      if (!user) return;
+      try {
+        await authFetch(`/tracker-notes/updates/${updateId}`, {
+          method: "PATCH",
+          body: JSON.stringify({ status: "merged" }),
+        });
+      } catch {
+        // silent
+      }
+    },
+    [user],
+  );
+
+  const ignoreNoteUpdate = useCallback(
+    async (updateId: string): Promise<void> => {
+      if (!user) return;
+      try {
+        await authFetch(`/tracker-notes/updates/${updateId}`, {
+          method: "PATCH",
+          body: JSON.stringify({ status: "ignored" }),
+        });
+      } catch {
+        // silent
+      }
+    },
+    [user],
+  );
+
+  return {
+    fetchCloudNotes,
+    createCloudNote,
+    updateCloudNote,
+    deleteCloudNote,
+    fetchNoteUpdates,
+    mergeNoteUpdate,
+    ignoreNoteUpdate,
+    syncing,
+  };
 }

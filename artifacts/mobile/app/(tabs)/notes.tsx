@@ -31,7 +31,7 @@ import {
 import { useAuth } from "@/contexts/AuthContext";
 import { useColors } from "@/hooks/useColors";
 import { useRouter } from "expo-router";
-import { useNotesSync } from "@/hooks/useNotesSync";
+import { useNotesSync, type NoteUpdate } from "@/hooks/useNotesSync";
 import {
   notesExtractOcr,
   notesExtractPdf,
@@ -173,7 +173,15 @@ export default function NotesScreen() {
   const colors = useColors();
   const router = useRouter();
   const { user, signOut } = useAuth();
-  const { fetchCloudNotes, createCloudNote, updateCloudNote, deleteCloudNote } = useNotesSync();
+  const {
+    fetchCloudNotes,
+    createCloudNote,
+    updateCloudNote,
+    deleteCloudNote,
+    fetchNoteUpdates,
+    mergeNoteUpdate,
+    ignoreNoteUpdate,
+  } = useNotesSync();
   const {
     trackerNotes,
     addTrackerNote,
@@ -204,6 +212,7 @@ export default function NotesScreen() {
             tags: cn.tags,
             isStarred: cn.isStarred,
             imageUri: cn.imageUri,
+            cloudId: cn.id,
           });
         }
       }
@@ -211,6 +220,20 @@ export default function NotesScreen() {
       setSyncing(false);
     })();
   }, [user]);
+
+  // Fetch pending note updates from Vector DB pipeline
+  useEffect(() => {
+    if (!user) { setNoteUpdatesMap({}); return; }
+    (async () => {
+      const updates = await fetchNoteUpdates();
+      const map: Record<string, NoteUpdate[]> = {};
+      for (const u of updates) {
+        if (!map[u.note_id]) map[u.note_id] = [];
+        map[u.note_id].push(u);
+      }
+      setNoteUpdatesMap(map);
+    })();
+  }, [user, synced]);
 
   const [activeSubject, setActiveSubject] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -242,6 +265,12 @@ export default function NotesScreen() {
 
   const [customOptional, setCustomOptional] = useState("");
   const [newCustomSubject, setNewCustomSubject] = useState("");
+
+  // ── Note Updates (RAG) ──────────────────────────────────────────────────
+  const [noteUpdatesMap, setNoteUpdatesMap] = useState<Record<string, NoteUpdate[]>>({});
+  const [showUpdatesModal, setShowUpdatesModal] = useState(false);
+  const [updatesModalNote, setUpdatesModalNote] = useState<TrackerNote | null>(null);
+  const [updatesLoading, setUpdatesLoading] = useState(false);
 
   const searchInputRef = useRef<TextInput>(null);
 
@@ -339,6 +368,44 @@ export default function NotesScreen() {
         },
       },
     ]);
+  };
+
+  // ── Note Updates handlers ─────────────────────────────────────────────
+  const openUpdatesModal = (note: TrackerNote) => {
+    setUpdatesModalNote(note);
+    setShowUpdatesModal(true);
+  };
+
+  const pendingUpdatesForModal = updatesModalNote
+    ? (noteUpdatesMap[updatesModalNote.id] ?? [])
+    : [];
+
+  const handleMergeUpdate = async (update: NoteUpdate, note: TrackerNote) => {
+    setUpdatesLoading(true);
+    const merged = note.content
+      ? `${note.content}\n\n---\n\n${update.content}`
+      : update.content;
+    const now = Date.now();
+    updateTrackerNote(note.id, { content: merged, lastSyncedAt: now });
+    if (user) updateCloudNote(note.id, { content: merged });
+    await mergeNoteUpdate(update.id);
+    setNoteUpdatesMap((prev) => {
+      const remaining = (prev[note.id] ?? []).filter((u) => u.id !== update.id);
+      return { ...prev, [note.id]: remaining };
+    });
+    setUpdatesLoading(false);
+    if ((pendingUpdatesForModal.length - 1) === 0) setShowUpdatesModal(false);
+  };
+
+  const handleIgnoreUpdate = async (update: NoteUpdate, note: TrackerNote) => {
+    setUpdatesLoading(true);
+    await ignoreNoteUpdate(update.id);
+    setNoteUpdatesMap((prev) => {
+      const remaining = (prev[note.id] ?? []).filter((u) => u.id !== update.id);
+      return { ...prev, [note.id]: remaining };
+    });
+    setUpdatesLoading(false);
+    if ((pendingUpdatesForModal.length - 1) === 0) setShowUpdatesModal(false);
   };
 
   const pickImage = async () => {
@@ -636,6 +703,8 @@ export default function NotesScreen() {
                   onPress={() => openNote(note)}
                   onStar={() => toggleStar(note)}
                   onDelete={() => confirmDelete(note)}
+                  pendingUpdatesCount={(noteUpdatesMap[note.id] ?? []).length}
+                  onSeeUpdates={() => openUpdatesModal(note)}
                 />
               ))
             )}
@@ -657,6 +726,8 @@ export default function NotesScreen() {
                   onPress={() => openNote(note)}
                   onStar={() => toggleStar(note)}
                   onDelete={() => confirmDelete(note)}
+                  pendingUpdatesCount={(noteUpdatesMap[note.id] ?? []).length}
+                  onSeeUpdates={() => openUpdatesModal(note)}
                 />
               ))
             )}
@@ -1267,6 +1338,99 @@ export default function NotesScreen() {
         </SafeAreaView>
       </Modal>
 
+      {/* Note Updates Modal */}
+      <Modal
+        visible={showUpdatesModal}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setShowUpdatesModal(false)}
+      >
+        <SafeAreaView style={[s.modal, { backgroundColor: colors.background }]}>
+          <View style={s.modalHeader}>
+            <View style={{ flex: 1 }}>
+              <Text style={[s.modalTitle, { color: colors.foreground }]}>Note Updates</Text>
+              {updatesModalNote && (
+                <Text
+                  style={{ fontSize: 12, fontFamily: "Inter_400Regular", color: colors.mutedForeground }}
+                  numberOfLines={1}
+                >
+                  {updatesModalNote.title}
+                </Text>
+              )}
+            </View>
+            <TouchableOpacity onPress={() => setShowUpdatesModal(false)} hitSlop={8}>
+              <Feather name="x" size={22} color={colors.foreground} />
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView
+            style={{ flex: 1 }}
+            contentContainerStyle={{ padding: 16, gap: 16 }}
+            showsVerticalScrollIndicator={false}
+          >
+            {pendingUpdatesForModal.length === 0 ? (
+              <View style={s.emptyBox}>
+                <Feather name="check-circle" size={32} color="#10B981" />
+                <Text style={[s.emptyText, { color: colors.mutedForeground }]}>
+                  All updates processed
+                </Text>
+              </View>
+            ) : (
+              pendingUpdatesForModal.map((update) => (
+                <View
+                  key={update.id}
+                  style={[s.updateItem, { backgroundColor: colors.card, borderColor: colors.border }]}
+                >
+                  <View style={s.updateItemHeader}>
+                    <View style={s.updateDot} />
+                    <Text style={[s.updateTitle, { color: colors.foreground }]}>{update.title}</Text>
+                    <Text style={[s.updateDate, { color: colors.mutedForeground }]}>
+                      {new Date(update.created_at).toLocaleDateString("en-IN", {
+                        day: "numeric",
+                        month: "short",
+                        year: "numeric",
+                      })}
+                    </Text>
+                  </View>
+                  {update.source ? (
+                    <View style={[s.updateSourceRow, { backgroundColor: "#10B98112" }]}>
+                      <Feather name="database" size={11} color="#10B981" />
+                      <Text style={s.updateSourceText}>{update.source}</Text>
+                    </View>
+                  ) : null}
+                  <Text style={[s.updateContent, { color: colors.foreground }]}>
+                    {update.content}
+                  </Text>
+                  <View style={s.updateActions}>
+                    <TouchableOpacity
+                      style={[s.ignoreBtn, { borderColor: colors.border }]}
+                      onPress={() => updatesModalNote && handleIgnoreUpdate(update, updatesModalNote)}
+                      disabled={updatesLoading}
+                    >
+                      <Text style={[s.ignoreBtnText, { color: colors.mutedForeground }]}>Ignore</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[s.mergeBtn, updatesLoading && { opacity: 0.6 }]}
+                      onPress={() => updatesModalNote && handleMergeUpdate(update, updatesModalNote)}
+                      disabled={updatesLoading}
+                    >
+                      {updatesLoading ? (
+                        <ActivityIndicator size="small" color="#fff" />
+                      ) : (
+                        <>
+                          <Feather name="git-merge" size={14} color="#fff" />
+                          <Text style={s.mergeBtnText}>Merge</Text>
+                        </>
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ))
+            )}
+          </ScrollView>
+        </SafeAreaView>
+      </Modal>
+
       {/* Custom Core Subject Modal */}
       <Modal visible={showCustomModal} animationType="slide" presentationStyle="formSheet">
         <SafeAreaView style={[s.modal, { backgroundColor: colors.background }]}>
@@ -1359,15 +1523,22 @@ function NoteCard({
   onPress,
   onStar,
   onDelete,
+  pendingUpdatesCount = 0,
+  onSeeUpdates,
 }: {
   note: TrackerNote;
   colors: ReturnType<typeof useColors>;
   onPress: () => void;
   onStar: () => void;
   onDelete: () => void;
+  pendingUpdatesCount?: number;
+  onSeeUpdates?: () => void;
 }) {
   const s = styles(colors);
   const accent = subjectColor(note.subject);
+  const hasUpdates = pendingUpdatesCount > 0;
+  const updateColor = hasUpdates ? "#10B981" : colors.mutedForeground;
+
   return (
     <Pressable
       style={({ pressed }) => [s.noteCard, { opacity: pressed ? 0.85 : 1 }]}
@@ -1410,6 +1581,47 @@ function NoteCard({
             })}
           </Text>
         </View>
+
+        {/* Updates footer row */}
+        <View style={s.noteUpdatesRow}>
+          <View style={s.noteUpdatesBadge}>
+            <View
+              style={[
+                s.noteUpdatesDot,
+                { backgroundColor: hasUpdates ? "#10B981" : colors.mutedForeground + "60" },
+              ]}
+            />
+            <Text style={[s.noteUpdatesBadgeText, { color: updateColor }]}>
+              Updates{hasUpdates ? ` (${pendingUpdatesCount})` : ""}
+            </Text>
+          </View>
+          <TouchableOpacity
+            onPress={hasUpdates ? onSeeUpdates : undefined}
+            disabled={!hasUpdates}
+            hitSlop={6}
+          >
+            <Text
+              style={[
+                s.seeUpdatesText,
+                { color: updateColor, opacity: hasUpdates ? 1 : 0.45 },
+              ]}
+            >
+              See Updates →
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {note.lastSyncedAt ? (
+          <Text style={[s.lastSyncedText, { color: colors.mutedForeground }]}>
+            Last synced:{" "}
+            {new Date(note.lastSyncedAt).toLocaleString("en-IN", {
+              day: "numeric",
+              month: "short",
+              hour: "2-digit",
+              minute: "2-digit",
+            })}
+          </Text>
+        ) : null}
       </View>
     </Pressable>
   );
@@ -1597,6 +1809,38 @@ function styles(colors: ReturnType<typeof useColors>) {
       fontSize: 11,
       fontFamily: "Inter_400Regular",
     },
+    noteUpdatesRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      marginTop: 8,
+      paddingTop: 8,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: colors.border,
+    },
+    noteUpdatesBadge: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 5,
+    },
+    noteUpdatesDot: {
+      width: 7,
+      height: 7,
+      borderRadius: 4,
+    },
+    noteUpdatesBadgeText: {
+      fontSize: 11,
+      fontFamily: "Inter_500Medium",
+    },
+    seeUpdatesText: {
+      fontSize: 11,
+      fontFamily: "Inter_600SemiBold",
+    },
+    lastSyncedText: {
+      fontSize: 10,
+      fontFamily: "Inter_400Regular",
+      marginTop: 4,
+    },
     tag: {
       paddingHorizontal: 8,
       paddingVertical: 3,
@@ -1613,6 +1857,82 @@ function styles(colors: ReturnType<typeof useColors>) {
       marginTop: 10,
     },
     modal: { flex: 1 },
+    updateItem: {
+      borderRadius: 12,
+      borderWidth: 1,
+      padding: 14,
+      gap: 10,
+    },
+    updateItemHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+    },
+    updateDot: {
+      width: 8,
+      height: 8,
+      borderRadius: 4,
+      backgroundColor: "#10B981",
+    },
+    updateTitle: {
+      flex: 1,
+      fontSize: 14,
+      fontFamily: "Inter_600SemiBold",
+    },
+    updateDate: {
+      fontSize: 11,
+      fontFamily: "Inter_400Regular",
+    },
+    updateSourceRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+      paddingHorizontal: 10,
+      paddingVertical: 5,
+      borderRadius: 6,
+      alignSelf: "flex-start",
+    },
+    updateSourceText: {
+      fontSize: 11,
+      fontFamily: "Inter_500Medium",
+      color: "#10B981",
+    },
+    updateContent: {
+      fontSize: 13,
+      fontFamily: "Inter_400Regular",
+      lineHeight: 20,
+    },
+    updateActions: {
+      flexDirection: "row",
+      gap: 10,
+      marginTop: 4,
+    },
+    ignoreBtn: {
+      flex: 1,
+      borderWidth: 1,
+      borderRadius: 10,
+      paddingVertical: 10,
+      alignItems: "center",
+    },
+    ignoreBtnText: {
+      fontSize: 14,
+      fontFamily: "Inter_500Medium",
+    },
+    mergeBtn: {
+      flex: 2,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 6,
+      backgroundColor: "#10B981",
+      borderRadius: 10,
+      paddingVertical: 10,
+    },
+    mergeBtnText: {
+      fontSize: 14,
+      fontFamily: "Inter_600SemiBold",
+      color: "#fff",
+    },
     modalHeader: {
       flexDirection: "row",
       alignItems: "center",

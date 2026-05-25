@@ -79,6 +79,8 @@ export type TrackerNote = {
   isStarred: boolean;
   imageUri?: string;
   createdAt: number;
+  cloudId?: string;
+  lastSyncedAt?: number;
 };
 
 export type SavedArticle = {
