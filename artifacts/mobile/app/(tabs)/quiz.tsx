@@ -27,7 +27,7 @@ import {
 } from "@/components/ui";
 import { useApp, type QuizAttempt, type VaultDocument } from "@/contexts/AppContext";
 import { useColors } from "@/hooks/useColors";
-import { generateQuiz } from "@/lib/ai";
+import { generateQuiz, pickRandomTopic } from "@/lib/ai";
 
 function WeakAreaTeaser({
   quizzes,
@@ -226,10 +226,9 @@ export default function QuizScreen() {
   };
 
   const start = async (topicArg?: string) => {
-    const t = (topicArg ?? topic).trim();
+    let t = (topicArg ?? topic).trim();
     if (!t) {
-      Alert.alert("Topic required", "Pick a preset or type a topic.");
-      return;
+      t = pickRandomTopic();
     }
     setGenerating(true);
     try {
@@ -321,7 +320,7 @@ export default function QuizScreen() {
         showsVerticalScrollIndicator={false}
       >
         <ScreenHeader
-          title="Quiz Engine"
+          title="AI Prelims Engine"
           subtitle="Generate prelims-grade MCQs from any topic, instantly."
         />
 

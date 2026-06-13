@@ -57,6 +57,7 @@ export default function PdfQuizScreen() {
 
   const [pdfName, setPdfName] = useState<string | null>(null);
   const [pdfBase64, setPdfBase64] = useState<string | null>(null);
+  const [pdfUri, setPdfUri] = useState<string | null>(null);
   const [pdfSize, setPdfSize] = useState<number>(0);
   const [maxQuestions, setMaxQuestions] = useState<(typeof MAX_OPTIONS)[number]>(100);
   const [processing, setProcessing] = useState(false);
@@ -94,12 +95,9 @@ export default function PdfQuizScreen() {
         const res = await fetch(asset.uri);
         const blob = await res.blob();
         base64 = await blobToBase64(blob);
-      } else {
-        base64 = await FileSystem.readAsStringAsync(asset.uri, {
-          encoding: FileSystem.EncodingType.Base64,
-        });
       }
 
+      setPdfUri(asset.uri);
       setPdfName(asset.name);
       setPdfBase64(base64);
       setPdfSize(asset.size ?? 0);
@@ -109,10 +107,14 @@ export default function PdfQuizScreen() {
   };
 
   const handleExtract = async () => {
-    if (!pdfBase64) return;
+    if (!pdfUri && !pdfBase64) return;
     setProcessing(true);
     try {
-      const questions = await extractQuizFromPdf(pdfBase64, maxQuestions);
+      const questions = await extractQuizFromPdf({
+        uri: pdfUri || "",
+        name: pdfName || "",
+        base64: pdfBase64 || ""
+      }, maxQuestions);
       if (!questions.length) {
         Alert.alert(
           "No questions found",
@@ -174,7 +176,7 @@ export default function PdfQuizScreen() {
             justifyContent: "center",
           }}
         >
-          <Feather name="arrow-left" size={18} color={colors.foreground} />
+          <Feather name="x" size={18} color={colors.foreground} />
         </Pressable>
         <View style={{ flex: 1 }}>
           <Text
@@ -416,11 +418,11 @@ export default function PdfQuizScreen() {
                 style={{
                   borderWidth: 2,
                   borderStyle: "dashed",
-                  borderColor: pdfBase64 ? colors.primary + "60" : colors.border,
+                  borderColor: pdfName ? colors.primary + "60" : colors.border,
                   borderRadius: 20,
                   padding: 28,
                   alignItems: "center",
-                  backgroundColor: pdfBase64 ? colors.primary + "06" : colors.card,
+                  backgroundColor: pdfName ? colors.primary + "06" : colors.card,
                   gap: 12,
                 }}
               >
@@ -429,7 +431,7 @@ export default function PdfQuizScreen() {
                     width: 60,
                     height: 60,
                     borderRadius: 18,
-                    backgroundColor: pdfBase64
+                    backgroundColor: pdfName
                       ? colors.primary + "15"
                       : colors.secondary,
                     alignItems: "center",
@@ -437,13 +439,13 @@ export default function PdfQuizScreen() {
                   }}
                 >
                   <Feather
-                    name={pdfBase64 ? "file-text" : "upload-cloud"}
+                    name={pdfName ? "file-text" : "upload-cloud"}
                     size={26}
-                    color={pdfBase64 ? colors.primary : colors.mutedForeground}
+                    color={pdfName ? colors.primary : colors.mutedForeground}
                   />
                 </View>
 
-                {pdfBase64 ? (
+                {pdfName ? (
                   <>
                     <Text
                       style={{
@@ -622,10 +624,10 @@ export default function PdfQuizScreen() {
             </View>
 
             <GradientButton
-              label={pdfBase64 ? "Extract All Questions" : "Select a PDF first"}
+              label={pdfName ? "Extract All Questions" : "Select a PDF first"}
               icon="zap"
               onPress={handleExtract}
-              disabled={!pdfBase64}
+              disabled={!pdfName}
               size="lg"
             />
           </>

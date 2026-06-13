@@ -1,4 +1,14 @@
-import type { Session, User } from "@supabase/supabase-js";
+import {
+  createUserWithEmailAndPassword,
+  onAuthStateChanged,
+  signInWithEmailAndPassword,
+  signOut as firebaseSignOut,
+  User,
+  updateProfile,
+  GoogleAuthProvider,
+  signInWithCredential,
+  sendPasswordResetEmail
+} from "firebase/auth";
 import React, {
   createContext,
   useCallback,
@@ -6,64 +16,95 @@ import React, {
   useEffect,
   useState,
 } from "react";
+import * as WebBrowser from "expo-web-browser";
 
-import { supabase } from "@/lib/supabase";
+import { auth } from "@/lib/firebase";
+
+WebBrowser.maybeCompleteAuthSession();
 
 type AuthState = {
-  session: Session | null;
   user: User | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<string | null>;
   signUp: (email: string, password: string, name: string) => Promise<string | null>;
+  signInWithGoogleIdToken: (idToken: string) => Promise<string | null>;
   signOut: () => Promise<void>;
+  resetPassword: (email: string) => Promise<string | null>;
 };
 
 const AuthContext = createContext<AuthState | null>(null);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [session, setSession] = useState<Session | null>(null);
+  const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
       setLoading(false);
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-    });
-
-    return () => subscription.unsubscribe();
+    return () => unsubscribe();
   }, []);
 
   const signIn = useCallback(async (email: string, password: string): Promise<string | null> => {
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    return error?.message ?? null;
+    try {
+      await signInWithEmailAndPassword(auth, email, password);
+      return null;
+    } catch (err: any) {
+      return err?.message ?? "An error occurred during sign in.";
+    }
   }, []);
 
   const signUp = useCallback(async (email: string, password: string, name: string): Promise<string | null> => {
-    const { error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: { data: { full_name: name } },
-    });
-    return error?.message ?? null;
+    try {
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      if (userCredential.user) {
+        await updateProfile(userCredential.user, { displayName: name });
+      }
+      return null;
+    } catch (err: any) {
+      return err?.message ?? "An error occurred during sign up.";
+    }
+  }, []);
+
+  const signInWithGoogleIdToken = useCallback(async (idToken: string): Promise<string | null> => {
+    try {
+      const credential = GoogleAuthProvider.credential(idToken);
+      await signInWithCredential(auth, credential);
+      return null;
+    } catch (err: any) {
+      return err?.message ?? "An error occurred during Google Sign In.";
+    }
   }, []);
 
   const signOut = useCallback(async () => {
-    await supabase.auth.signOut();
+    try {
+      await firebaseSignOut(auth);
+    } catch (err) {
+      console.error("Sign out error", err);
+    }
+  }, []);
+
+  const resetPassword = useCallback(async (email: string): Promise<string | null> => {
+    try {
+      await sendPasswordResetEmail(auth, email);
+      return null;
+    } catch (err: any) {
+      return err?.message ?? "An error occurred while sending the reset email.";
+    }
   }, []);
 
   return (
     <AuthContext.Provider
       value={{
-        session,
-        user: session?.user ?? null,
+        user,
         loading,
         signIn,
         signUp,
+        signInWithGoogleIdToken,
         signOut,
+        resetPassword,
       }}
     >
       {children}

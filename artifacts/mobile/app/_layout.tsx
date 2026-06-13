@@ -12,6 +12,7 @@ import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import React, { useEffect } from "react";
+import { LogBox } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -52,13 +53,19 @@ function ShareHandler() {
   return null;
 }
 
-SplashScreen.preventAutoHideAsync();
+SplashScreen.preventAutoHideAsync().catch(() => {});
+
+LogBox.ignoreLogs(['A props object containing a "key" prop is being spread into JSX']);
 
 const queryClient = new QueryClient();
 
 function RootLayoutNav() {
   return (
-    <Stack screenOptions={{ headerBackTitle: "Back" }}>
+    <Stack screenOptions={{ 
+      headerBackTitle: "Back",
+      gestureEnabled: true,
+      fullScreenGestureEnabled: true
+    }}>
       <Stack.Screen name="login" options={{ headerShown: false }} />
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
       <Stack.Screen
@@ -88,12 +95,40 @@ function RootLayoutNav() {
         }}
       />
       <Stack.Screen
+        name="profile"
+        options={{
+          headerShown: false,
+          presentation: "modal",
+        }}
+      />
+      <Stack.Screen
+        name="pricing"
+        options={{
+          headerShown: false,
+          presentation: "modal",
+        }}
+      />
+      <Stack.Screen
         name="weak-areas"
         options={{
           headerShown: true,
           headerTitle: "Weak Areas",
           headerShadowVisible: false,
           headerStyle: { backgroundColor: "#F8FAFC" },
+          headerTitleStyle: {
+            fontFamily: "Inter_700Bold",
+            fontSize: 17,
+          },
+        }}
+      />
+      <Stack.Screen
+        name="evaluate-mains"
+        options={{
+          headerShown: true,
+          headerTitle: "Mains AI",
+          headerShadowVisible: false,
+          headerStyle: { backgroundColor: "#0F172A" },
+          headerTintColor: "#fff",
           headerTitleStyle: {
             fontFamily: "Inter_700Bold",
             fontSize: 17,
@@ -122,7 +157,7 @@ export default function RootLayout() {
 
   useEffect(() => {
     if (fontsLoaded || fontError) {
-      SplashScreen.hideAsync();
+      SplashScreen.hideAsync().catch(() => {});
     }
   }, [fontsLoaded, fontError]);
 

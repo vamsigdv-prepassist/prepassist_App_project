@@ -5,7 +5,10 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "mobile",
+    "scheme": [
+      "mobile",
+      "com.googleusercontent.apps.848376794933-ic74b2ls913mpbvruirjt8jmda736fpq"
+    ],
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "splash": {
@@ -15,23 +18,40 @@
     },
     "ios": {
       "supportsTablet": false,
+      "bundleIdentifier": "com.prepassist.mobile",
       "infoPlist": {
         "NSCameraUsageDescription": "PrepAssist needs camera access to capture handwritten essays for AI evaluation.",
         "NSPhotoLibraryUsageDescription": "PrepAssist needs photo library access to upload essays and study materials."
       }
     },
     "android": {
-      "permissions": ["CAMERA", "READ_EXTERNAL_STORAGE"],
+      "package": "com.prepassist.mobile",
+      "permissions": [
+        "CAMERA",
+        "READ_EXTERNAL_STORAGE"
+      ],
       "intentFilters": [
         {
           "action": "android.intent.action.SEND",
-          "data": [{ "mimeType": "text/plain" }],
-          "category": ["android.intent.category.DEFAULT"]
+          "data": [
+            {
+              "mimeType": "text/plain"
+            }
+          ],
+          "category": [
+            "android.intent.category.DEFAULT"
+          ]
         },
         {
           "action": "android.intent.action.SEND",
-          "data": [{ "mimeType": "text/*" }],
-          "category": ["android.intent.category.DEFAULT"]
+          "data": [
+            {
+              "mimeType": "text/*"
+            }
+          ],
+          "category": [
+            "android.intent.category.DEFAULT"
+          ]
         }
       ]
     },

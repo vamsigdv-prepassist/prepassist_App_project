@@ -3,7 +3,7 @@ import { fetch as expoFetch } from "expo/fetch";
 import type { QuizQuestion } from "@/contexts/AppContext";
 
 const DOMAIN = process.env.EXPO_PUBLIC_DOMAIN ?? "";
-const API_BASE = DOMAIN ? `https://${DOMAIN}/api` : "/api";
+const API_BASE = process.env.EXPO_PUBLIC_API_URL || (DOMAIN ? `https://${DOMAIN}/api` : "http://localhost:5001/api");
 
 function uid() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 9);
@@ -37,7 +37,7 @@ export type RagParams = {
 };
 
 export async function ragAnswer(params: RagParams): Promise<string> {
-  const { answer } = await callApi<{ answer: string }>("/ai/rag", params);
+  const { answer } = await callApi<{ answer: string }>("/rag", params);
   return answer || "I couldn't generate a response. Please try again.";
 }
 
@@ -325,92 +325,112 @@ export async function generateQuiz(
   count: number,
   opts?: { documentTitle?: string; documentChunks?: string[] },
 ): Promise<QuizQuestion[]> {
-  const body: Record<string, unknown> = { topic, count };
+  const body: Record<string, unknown> = { topic, difficulty: "Medium", numQuestions: count };
+  
   if (opts?.documentTitle && opts.documentChunks?.length) {
     body.documentTitle = opts.documentTitle;
     body.documentPassages = sampleChunksForQuiz(opts.documentChunks);
   }
-  const { questions } = await callApi<{
-    questions: {
-      id?: string;
-      question?: string;
-      options?: string[];
-      correctIndex?: number;
-      explanation?: string;
-      topic?: string;
+  
+  const { results } = await callApi<{
+    results: {
+      questionText: string;
+      options: { id: string; text: string }[];
+      correctOptionId: string;
+      explanation: string;
     }[];
-  }>("/ai/quiz", body);
+  }>("/quiz/generate-ai", body);
 
-  return (questions ?? [])
-    .filter(
-      (q) =>
-        typeof q.question === "string" &&
-        Array.isArray(q.options) &&
-        q.options.length === 4 &&
-        typeof q.correctIndex === "number",
-    )
-    .map((q) => ({
-      id: q.id || uid(),
-      prompt: q.question!,
-      options: q.options!,
-      correctIndex: Math.max(0, Math.min(3, q.correctIndex!)),
-      explanation: q.explanation || "",
-      subtopic: typeof q.topic === "string" ? q.topic : undefined,
-    }));
+  return (results ?? [])
+    .filter(q => typeof q.questionText === "string" && Array.isArray(q.options) && q.options.length >= 4)
+    .map(q => {
+      // Find the index of the correct option
+      const correctIndex = Math.max(0, q.options.findIndex(o => o.id.toLowerCase() === q.correctOptionId.toLowerCase()));
+      
+      return {
+        id: uid(),
+        prompt: q.questionText,
+        options: q.options.map(o => o.text),
+        correctIndex: correctIndex,
+        explanation: q.explanation || "",
+        subtopic: topic,
+      };
+    });
 }
 
 export async function extractQuizFromPdf(
-  pdfBase64: string,
+  fileInfo: { uri: string; name: string; base64?: string },
   maxQuestions: number = 100,
 ): Promise<QuizQuestion[]> {
-  const { questions } = await callApi<{
-    questions: {
-      id?: string;
-      question?: string;
-      options?: string[];
-      correctIndex?: number;
-      explanation?: string;
-      topic?: string;
-    }[];
-  }>("/ai/extract-quiz", { pdfBase64, maxQuestions });
+  let results;
+  
+  if (fileInfo.uri && !fileInfo.uri.startsWith("data:")) {
+    // React Native environment: upload file via FormData
+    const formData = new FormData();
+    formData.append("pdf", {
+      uri: fileInfo.uri,
+      name: fileInfo.name || "upload.pdf",
+      type: "application/pdf",
+    } as any);
+    formData.append("language", "English");
 
-  return (questions ?? [])
-    .filter(
-      (q) =>
-        typeof q.question === "string" &&
-        Array.isArray(q.options) &&
-        q.options.length === 4 &&
-        typeof q.correctIndex === "number",
-    )
-    .map((q) => ({
-      id: q.id || uid(),
-      prompt: q.question!,
-      options: q.options!,
-      correctIndex: Math.max(0, Math.min(3, q.correctIndex!)),
-      explanation: q.explanation || "",
-      subtopic: typeof q.topic === "string" ? q.topic : undefined,
-    }));
+    const res = await fetch(`${API_BASE}/quiz/process-pdf`, {
+      method: "POST",
+      body: formData,
+      headers: {
+        Accept: "application/json",
+      },
+    });
+
+    if (!res.ok) {
+      const err = await res.text().catch(() => "");
+      throw new Error(`API failed (${res.status}): ${err.slice(0, 200)}`);
+    }
+    const data = await res.json();
+    results = data.results;
+  } else {
+    // Web environment or fallback: send base64
+    const res = await callApi<{
+      results: any[];
+    }>("/quiz/process-pdf", { pdfBase64: fileInfo.base64, language: "English" });
+    results = res.results;
+  }
+
+  return (results ?? [])
+    .filter((q: any) => typeof q.questionText === "string" && Array.isArray(q.options) && q.options.length >= 4)
+    .slice(0, maxQuestions)
+    .map((q: any) => {
+      const correctIndex = Math.max(0, q.options.findIndex((o: any) => o.id.toLowerCase() === q.correctOptionId.toLowerCase()));
+      return {
+        id: uid(),
+        prompt: q.questionText,
+        options: q.options.map((o: any) => o.text),
+        correctIndex: correctIndex,
+        explanation: q.explanation || "",
+        subtopic: undefined,
+      };
+    });
 }
 
 // ── Notes extraction helpers ─────────────────────────────────────────────────
 
 export async function notesExtractOcr(base64Image: string): Promise<string> {
-  const { text } = await callApi<{ text: string }>("/ai/notes/extract-ocr", {
+  const { text } = await callApi<{ text: string }>("/notes/extract-ocr", {
     base64Image,
   });
   return text ?? "";
 }
 
 export async function notesExtractPdf(pdfBase64: string): Promise<{ text: string; pages?: number }> {
-  return callApi<{ text: string; pages?: number }>("/ai/notes/extract-pdf", { pdfBase64 });
+  return callApi<{ text: string; pages?: number }>("/notes/extract-pdf", { pdfBase64 });
 }
 
 export async function notesExtractUrl(url: string): Promise<{ text: string; title?: string }> {
-  return callApi<{ text: string; title?: string }>("/ai/notes/extract-url", { url });
+  return callApi<{ text: string; title?: string }>("/notes/extract-url", { url });
 }
 
 export async function notesGenerate(topic: string): Promise<{ text: string; title: string }> {
-  return callApi<{ text: string; title: string }>("/ai/notes/generate", { topic });
+  return callApi<{ text: string; title: string }>("/notes/generate", { topic });
 }
 
 export function pickRandomTopic() {

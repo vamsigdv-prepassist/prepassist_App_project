@@ -6,6 +6,9 @@ import {
   ActivityIndicator,
   Animated,
   FlatList,
+  Modal,
+  Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -14,25 +17,14 @@ import {
 
 import { SectionHeader } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
-
-const DOMAIN = process.env.EXPO_PUBLIC_DOMAIN ?? "";
-const API_BASE = DOMAIN ? `https://${DOMAIN}/api` : "/api";
+import { fetchFlashcards, Flashcard } from "@/lib/flashcards";
 
 const CARD_W = 272;
 const CARD_H = 168;
 
-export interface Flashcard {
-  id: string;
-  topic: string;
-  frontText: string;
-  backText: string;
-  language: "English" | "Hindi";
-  createdAt: string;
-}
-
 type Language = "English" | "Hindi";
 
-function FlipCard({ card }: { card: Flashcard }) {
+function FlipCard({ card, onExpand }: { card: Flashcard; onExpand: (card: Flashcard, color: string) => void }) {
   const colors = useColors();
   const [flipped, setFlipped] = useState(false);
   const anim = useRef(new Animated.Value(0)).current;
@@ -70,11 +62,7 @@ function FlipCard({ card }: { card: Flashcard }) {
   const [g1, g2] = topicColors[card.topic] ?? ["#4F39F6", "#06B6D4"];
 
   return (
-    <TouchableOpacity
-      onPress={flip}
-      activeOpacity={1}
-      style={s.cardWrapper}
-    >
+    <View style={s.cardWrapper}>
       {/* Front face */}
       <Animated.View
         style={[
@@ -86,28 +74,30 @@ function FlipCard({ card }: { card: Flashcard }) {
           },
         ]}
       >
-        <LinearGradient
-          colors={[g1, g2]}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={s.faceGradient}
-        >
-          {/* Topic + hint */}
-          <View style={s.faceTop}>
-            <View style={s.topicBadge}>
-              <Text style={s.topicText}>{card.topic}</Text>
+        <Pressable onPress={flip} style={{ flex: 1 }}>
+          <LinearGradient
+            colors={[g1, g2]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={s.faceGradient}
+          >
+            {/* Topic + hint */}
+            <View style={s.faceTop}>
+              <View style={s.topicBadge}>
+                <Text style={s.topicText}>{card.topic}</Text>
+              </View>
+              <View style={s.tapHint}>
+                <Feather name="refresh-cw" size={11} color="rgba(255,255,255,0.7)" />
+                <Text style={s.tapHintText}>Tap to reveal</Text>
+              </View>
             </View>
-            <View style={s.tapHint}>
-              <Feather name="refresh-cw" size={11} color="rgba(255,255,255,0.7)" />
-              <Text style={s.tapHintText}>Tap to reveal</Text>
-            </View>
-          </View>
 
-          {/* Question */}
-          <Text style={s.frontText} numberOfLines={4}>
-            {card.frontText}
-          </Text>
-        </LinearGradient>
+            {/* Question */}
+            <Text style={s.frontText} numberOfLines={4}>
+              {card.frontText}
+            </Text>
+          </LinearGradient>
+        </Pressable>
       </Animated.View>
 
       {/* Back face */}
@@ -125,27 +115,35 @@ function FlipCard({ card }: { card: Flashcard }) {
         ]}
       >
         <View style={[s.faceGradient, s.backFace]}>
-          {/* Back header */}
-          <View style={s.faceTop}>
-            <View style={[s.topicBadge, { backgroundColor: g1 + "30", borderColor: g1 + "60", borderWidth: 1 }]}>
-              <Text style={[s.topicText, { color: g1 }]}>{card.topic}</Text>
+          <Pressable onPress={flip} style={{ flex: 1, zIndex: 1 }}>
+            {/* Back header */}
+            <View style={s.faceTop}>
+              <View style={[s.topicBadge, { backgroundColor: g1 + "30", borderColor: g1 + "60", borderWidth: 1 }]}>
+                <Text style={[s.topicText, { color: g1 }]}>{card.topic}</Text>
+              </View>
+              <View style={s.tapHint}>
+                <Feather name="refresh-cw" size={11} color="#94A3B8" />
+                <Text style={[s.tapHintText, { color: "#94A3B8" }]}>Question</Text>
+              </View>
             </View>
-            <View style={s.tapHint}>
-              <Feather name="refresh-cw" size={11} color="#94A3B8" />
-              <Text style={[s.tapHintText, { color: "#94A3B8" }]}>Answer</Text>
-            </View>
+
+            {/* Answer */}
+            <Text style={s.backText} numberOfLines={3}>
+              {card.backText}
+            </Text>
+          </Pressable>
+
+          {/* Bottom Actions */}
+          <View style={{ zIndex: 2, flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 8 }}>
+            <View style={[s.backAccent, { backgroundColor: g1, marginTop: 0 }]} />
+            <TouchableOpacity onPress={() => onExpand(card, g1)} style={s.readMoreBtn}>
+              <Text style={[s.readMoreText, { color: g1 }]}>Read Full</Text>
+              <Feather name="maximize-2" size={12} color={g1} />
+            </TouchableOpacity>
           </View>
-
-          {/* Answer */}
-          <Text style={s.backText} numberOfLines={5}>
-            {card.backText}
-          </Text>
-
-          {/* Accent line */}
-          <View style={[s.backAccent, { backgroundColor: g1 }]} />
         </View>
       </Animated.View>
-    </TouchableOpacity>
+    </View>
   );
 }
 
@@ -155,17 +153,19 @@ export default function FlashcardCarousel() {
   const [cards, setCards] = useState<Flashcard[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  const [expandedCard, setExpandedCard] = useState<{ card: Flashcard; color: string } | null>(null);
 
   const fetchCards = useCallback(async (lang: Language) => {
     setLoading(true);
     setError(false);
     try {
-      const res = await fetch(
-        `${API_BASE}/flashcards?language=${lang}&limit=10`,
-      );
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = (await res.json()) as { cards: Flashcard[] };
-      setCards(data.cards ?? []);
+      const data = await fetchFlashcards(lang, 10);
+      if (!data || data.length === 0) {
+        setError(true);
+      } else {
+        setCards(data);
+        setError(false);
+      }
     } catch {
       setError(true);
     } finally {
@@ -183,7 +183,17 @@ export default function FlashcardCarousel() {
     <View style={{ marginTop: 24 }}>
       {/* Header row with language toggle */}
       <View style={s.sectionRow}>
-        <SectionHeader title="Daily Flashcards" />
+        <Text
+          style={{
+            flex: 1,
+            color: colors.foreground,
+            fontFamily: "Inter_700Bold",
+            fontSize: 18,
+            letterSpacing: -0.3,
+          }}
+        >
+          Daily Flashcards
+        </Text>
         <View style={[s.langToggle, { borderColor: colors.border }]}>
           {(["English", "Hindi"] as Language[]).map((lang) => (
             <TouchableOpacity
@@ -238,7 +248,7 @@ export default function FlashcardCarousel() {
           contentContainerStyle={s.listContent}
           snapToInterval={CARD_W + 12}
           decelerationRate="fast"
-          renderItem={({ item }) => <FlipCard card={item} />}
+          renderItem={({ item }) => <FlipCard card={item} onExpand={(card, color) => setExpandedCard({ card, color })} />}
           ListFooterComponent={<View style={{ width: 8 }} />}
         />
       )}
@@ -246,6 +256,37 @@ export default function FlashcardCarousel() {
       <Text style={[s.hint, { color: colors.mutedForeground }]}>
         Tap any card to flip it
       </Text>
+
+      {/* Expanded Modal */}
+      <Modal
+        visible={!!expandedCard}
+        animationType="fade"
+        transparent={true}
+        onRequestClose={() => setExpandedCard(null)}
+      >
+        <View style={s.modalOverlay}>
+          <View style={[s.modalContent, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            {expandedCard && (
+              <>
+                <View style={s.modalHeader}>
+                  <View style={[s.topicBadge, { backgroundColor: expandedCard.color + "30", borderColor: expandedCard.color + "60", borderWidth: 1 }]}>
+                     <Text style={[s.topicText, { color: expandedCard.color }]}>{expandedCard.card.topic}</Text>
+                  </View>
+                  <TouchableOpacity onPress={() => setExpandedCard(null)} style={s.closeBtn}>
+                    <Feather name="x" size={20} color={colors.foreground} />
+                  </TouchableOpacity>
+                </View>
+
+                <ScrollView style={s.modalScroll} showsVerticalScrollIndicator={false}>
+                  <Text style={[s.modalFrontText, { color: colors.foreground }]}>{expandedCard.card.frontText}</Text>
+                  <View style={[s.modalDivider, { backgroundColor: colors.border }]} />
+                  <Text style={[s.modalBackText, { color: colors.foreground }]}>{expandedCard.card.backText}</Text>
+                </ScrollView>
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -335,8 +376,6 @@ const s = StyleSheet.create({
     fontSize: 13,
     fontFamily: "Inter_400Regular",
     lineHeight: 20,
-    flex: 1,
-    marginTop: 8,
   },
   backAccent: {
     height: 3,
@@ -373,5 +412,68 @@ const s = StyleSheet.create({
     textAlign: "center",
     marginTop: 8,
     marginBottom: 4,
+  },
+  readMoreBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    backgroundColor: "rgba(100,100,100,0.05)",
+    borderRadius: 12,
+  },
+  readMoreText: {
+    fontSize: 11,
+    fontFamily: "Inter_700Bold",
+    textTransform: "uppercase",
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+  },
+  modalContent: {
+    width: "100%",
+    maxHeight: "80%",
+    borderRadius: 24,
+    borderWidth: 1,
+    padding: 24,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.2,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  modalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 20,
+  },
+  closeBtn: {
+    padding: 6,
+    backgroundColor: "rgba(100,100,100,0.1)",
+    borderRadius: 16,
+  },
+  modalScroll: {
+    flexGrow: 0,
+  },
+  modalFrontText: {
+    fontSize: 18,
+    fontFamily: "Inter_700Bold",
+    lineHeight: 26,
+    marginBottom: 16,
+  },
+  modalDivider: {
+    height: 1,
+    width: "100%",
+    marginBottom: 16,
+  },
+  modalBackText: {
+    fontSize: 15,
+    fontFamily: "Inter_400Regular",
+    lineHeight: 24,
   },
 });

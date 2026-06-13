@@ -2,7 +2,7 @@ import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -17,12 +17,13 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { useAuth } from "@/contexts/AuthContext";
 import { useColors } from "@/hooks/useColors";
+import * as Google from "expo-auth-session/providers/google";
 
 type Mode = "signin" | "signup";
 
 export default function LoginScreen() {
   const colors = useColors();
-  const { signIn, signUp } = useAuth();
+  const { signIn, signUp, signInWithGoogleIdToken } = useAuth();
   const router = useRouter();
 
   const [mode, setMode] = useState<Mode>("signin");
@@ -33,6 +34,26 @@ export default function LoginScreen() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [signedUpOk, setSignedUpOk] = useState(false);
+
+  const [request, response, promptAsync] = Google.useIdTokenAuthRequest({
+    clientId: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID || "YOUR_WEB_CLIENT_ID",
+    iosClientId: process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID,
+  });
+
+  useEffect(() => {
+    if (response?.type === "success") {
+      const { id_token } = response.params;
+      if (id_token) {
+        setLoading(true);
+        signInWithGoogleIdToken(id_token).then((err) => {
+          if (err) setError(err);
+          setLoading(false);
+        });
+      }
+    } else if (response?.type === "error") {
+      setError(response.error?.message ?? "Google Sign-In Error");
+    }
+  }, [response]);
 
   async function handleSubmit() {
     setError("");
@@ -209,6 +230,24 @@ export default function LoginScreen() {
             )}
           </TouchableOpacity>
 
+          <View style={s.dividerWrap}>
+            <View style={[s.dividerLine, { backgroundColor: colors.border }]} />
+            <Text style={[s.dividerText, { color: colors.mutedForeground, backgroundColor: colors.background }]}>OR</Text>
+          </View>
+
+          {/* Google Sign In */}
+          <TouchableOpacity
+            style={[s.googleBtn, { backgroundColor: colors.background, borderColor: colors.border }]}
+            onPress={async () => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              promptAsync();
+            }}
+            disabled={!request || loading}
+          >
+            <Feather name="globe" size={18} color={colors.foreground} style={s.googleIcon} />
+            <Text style={[s.googleBtnText, { color: colors.foreground }]}>Continue with Google</Text>
+          </TouchableOpacity>
+
           {/* Skip / continue without account */}
           <TouchableOpacity
             style={s.skipBtn}
@@ -296,6 +335,19 @@ const s = StyleSheet.create({
     marginTop: 4,
   },
   btnText: { color: "#fff", fontSize: 16, fontFamily: "Inter_700Bold" },
+  dividerWrap: { flexDirection: "row", alignItems: "center", marginVertical: 8 },
+  dividerLine: { flex: 1, height: StyleSheet.hairlineWidth },
+  dividerText: { marginHorizontal: 12, fontSize: 12, fontFamily: "Inter_600SemiBold", paddingHorizontal: 4 },
+  googleBtn: {
+    height: 52,
+    borderRadius: 14,
+    borderWidth: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  googleIcon: { marginRight: 8 },
+  googleBtnText: { fontSize: 16, fontFamily: "Inter_600SemiBold" },
   skipBtn: { alignItems: "center", paddingVertical: 10 },
   skipText: { fontSize: 13, fontFamily: "Inter_500Medium" },
   center: { flex: 1, alignItems: "center", justifyContent: "center", padding: 32, gap: 12 },

@@ -1,65 +1,42 @@
 import { useCallback, useRef } from "react";
 
 import { useAuth } from "@/contexts/AuthContext";
-import { supabase } from "@/lib/supabase";
+import { db } from "@/lib/firebase";
+import { collection, doc, getDocs, query, where, setDoc, updateDoc, deleteDoc, arrayUnion } from "firebase/firestore";
 import type { TrackerNote } from "@/contexts/AppContext";
-
-const DOMAIN = process.env.EXPO_PUBLIC_DOMAIN ?? "";
-const API_BASE = DOMAIN ? `https://${DOMAIN}/api` : "/api";
-
-export interface CloudNote {
-  id: string;
-  user_id: string;
-  title: string;
-  content: string;
-  subject: string;
-  tags: string[];
-  is_starred: boolean;
-  image_uri?: string | null;
-  created_at: string;
-  updated_at: string;
-}
+import type { CloudNote as FirestoreCloudNote } from "@/lib/cloud_notes";
 
 export interface NoteUpdate {
   id: string;
   note_id: string;
-  user_id: string;
   title: string;
+  source: string;
+  date: string;
+  excerpt: string;
   content: string;
-  source?: string | null;
+  imageUrl?: string;
   status: "pending" | "merged" | "ignored";
   created_at: string;
 }
 
-function cloudToLocal(n: CloudNote): TrackerNote {
+function cloudToLocal(n: FirestoreCloudNote): TrackerNote {
   return {
-    id: n.id,
+    id: n.id || "unknown",
     title: n.title,
-    content: n.content,
-    subject: n.subject,
-    tags: n.tags ?? [],
-    isStarred: n.is_starred,
-    imageUri: n.image_uri ?? undefined,
-    createdAt: new Date(n.created_at).getTime(),
+    content: n.content || "",
+    subject: n.subject || "Uncategorized",
+    tags: n.tags || [],
+    isStarred: n.is_starred || false,
+    imageUri: n.fileUrl || undefined,
+    createdAt: n.createdAt || Date.now(),
     cloudId: n.id,
+    
+    // RAG Metadata
+    hasUpdates: n.hasUpdates || false,
+    updatesList: n.updatesList || [],
+    ignoredUpdateIds: n.ignoredUpdateIds || [],
+    mergedSources: n.mergedSources || []
   };
-}
-
-async function getJwt(): Promise<string | null> {
-  const { data } = await supabase.auth.getSession();
-  return data.session?.access_token ?? null;
-}
-
-async function authFetch(path: string, options?: RequestInit): Promise<Response> {
-  const jwt = await getJwt();
-  return fetch(`${API_BASE}${path}`, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...(options?.headers ?? {}),
-      ...(jwt ? { Authorization: `Bearer ${jwt}` } : {}),
-    },
-  });
 }
 
 export function useNotesSync() {
@@ -69,10 +46,13 @@ export function useNotesSync() {
   const fetchCloudNotes = useCallback(async (): Promise<TrackerNote[]> => {
     if (!user) return [];
     try {
-      const res = await authFetch("/tracker-notes");
-      if (!res.ok) return [];
-      const { notes } = (await res.json()) as { notes: CloudNote[] };
-      return (notes ?? []).map(cloudToLocal);
+      const q = query(collection(db, "cloud_notes"), where("userId", "==", user.uid));
+      const snap = await getDocs(q);
+      const all: FirestoreCloudNote[] = [];
+      snap.forEach(d => all.push({ id: d.id, ...d.data() } as FirestoreCloudNote));
+      
+      const trackerNotes = all.filter(n => !n.isStaged);
+      return trackerNotes.map(cloudToLocal).sort((a, b) => b.createdAt - a.createdAt);
     } catch {
       return [];
     }
@@ -82,21 +62,29 @@ export function useNotesSync() {
     async (note: Omit<TrackerNote, "id" | "createdAt">): Promise<string | null> => {
       if (!user) return null;
       try {
-        const res = await authFetch("/tracker-notes", {
-          method: "POST",
-          body: JSON.stringify({
-            title: note.title,
-            content: note.content,
-            subject: note.subject,
-            tags: note.tags,
-            is_starred: note.isStarred,
-            image_uri: note.imageUri ?? null,
-          }),
-        });
-        if (!res.ok) return null;
-        const { note: created } = (await res.json()) as { note: CloudNote };
-        return created?.id ?? null;
-      } catch {
+        const newId = "local_" + Date.now().toString(36);
+        const payload: FirestoreCloudNote = {
+          id: newId,
+          userId: user.uid,
+          title: note.title,
+          content: note.content,
+          subject: note.subject || "Uncategorized",
+          tags: note.tags || [],
+          is_starred: note.isStarred || false,
+          type: "text",
+          categoryType: "core",
+          isStaged: false, // Ensures RAG Pipeline reads it!
+          createdAt: Date.now(),
+        };
+        
+        if (note.imageUri) {
+            payload.fileUrl = note.imageUri;
+        }
+        
+        await setDoc(doc(db, "cloud_notes", newId), payload);
+        return newId;
+      } catch (err) {
+        console.error("Firebase Create Failed:", err);
         return null;
       }
     },
@@ -107,19 +95,27 @@ export function useNotesSync() {
     async (id: string, patch: Partial<TrackerNote>): Promise<void> => {
       if (!user) return;
       try {
-        await authFetch(`/tracker-notes/${id}`, {
-          method: "PATCH",
-          body: JSON.stringify({
-            ...(patch.title !== undefined && { title: patch.title }),
-            ...(patch.content !== undefined && { content: patch.content }),
-            ...(patch.subject !== undefined && { subject: patch.subject }),
-            ...(patch.tags !== undefined && { tags: patch.tags }),
-            ...(patch.isStarred !== undefined && { is_starred: patch.isStarred }),
-            ...(patch.imageUri !== undefined && { image_uri: patch.imageUri }),
-          }),
-        });
-      } catch {
-        // silent — local state is source of truth, cloud is best-effort
+        const updatePayload: any = {};
+        if (patch.title !== undefined) updatePayload.title = patch.title;
+        if (patch.content !== undefined) updatePayload.content = patch.content;
+        if (patch.subject !== undefined) updatePayload.subject = patch.subject;
+        if (patch.tags !== undefined) updatePayload.tags = patch.tags;
+        if (patch.isStarred !== undefined) updatePayload.is_starred = patch.isStarred;
+        if (patch.imageUri !== undefined) updatePayload.fileUrl = patch.imageUri;
+        if (patch.mergedSources !== undefined) updatePayload.mergedSources = patch.mergedSources;
+        if (patch.hasUpdates !== undefined) updatePayload.hasUpdates = patch.hasUpdates;
+        if (patch.updatesList !== undefined) updatePayload.updatesList = patch.updatesList;
+        if (patch.ignoredUpdateIds !== undefined) updatePayload.ignoredUpdateIds = patch.ignoredUpdateIds;
+        
+        // Firestore strictly forbids undefined values anywhere in the payload (even inside nested objects/arrays).
+        // This recursively removes any undefined properties to prevent silent crashes.
+        const cleanPayload = JSON.parse(JSON.stringify(updatePayload));
+        
+        if (Object.keys(cleanPayload).length > 0) {
+            await updateDoc(doc(db, "cloud_notes", id), cleanPayload);
+        }
+      } catch (err) {
+        console.error("updateCloudNote Error:", err);
       }
     },
     [user],
@@ -129,7 +125,7 @@ export function useNotesSync() {
     async (id: string): Promise<void> => {
       if (!user) return;
       try {
-        await authFetch(`/tracker-notes/${id}`, { method: "DELETE" });
+        await deleteDoc(doc(db, "cloud_notes", id));
       } catch {
         // silent
       }
@@ -142,10 +138,35 @@ export function useNotesSync() {
   const fetchNoteUpdates = useCallback(async (): Promise<NoteUpdate[]> => {
     if (!user) return [];
     try {
-      const res = await authFetch("/tracker-notes/updates");
-      if (!res.ok) return [];
-      const { updates } = (await res.json()) as { updates: NoteUpdate[] };
-      return updates ?? [];
+      const q = query(collection(db, "cloud_notes"), where("userId", "==", user.uid));
+      const snap = await getDocs(q);
+      const updates: NoteUpdate[] = [];
+      
+      snap.forEach(d => {
+        const note = d.data() as FirestoreCloudNote;
+        if (note.hasUpdates && note.updatesList && note.updatesList.length > 0) {
+          const ignoredSet = new Set(note.ignoredUpdateIds || []);
+          
+          note.updatesList.forEach((u: any) => {
+             if (!ignoredSet.has(u.id)) {
+                 updates.push({
+                   id: u.id,
+                   note_id: d.id,
+                   title: u.title || "Update",
+                   source: u.source || "Global Vault",
+                   date: u.date || new Date().toISOString(),
+                   excerpt: u.excerpt || "",
+                   content: u.content || "",
+                   imageUrl: u.imageUrl || undefined,
+                   status: "pending",
+                   created_at: new Date().toISOString()
+                 });
+             }
+          });
+        }
+      });
+      
+      return updates;
     } catch {
       return [];
     }
@@ -153,27 +174,33 @@ export function useNotesSync() {
 
   const mergeNoteUpdate = useCallback(
     async (updateId: string): Promise<void> => {
-      if (!user) return;
-      try {
-        await authFetch(`/tracker-notes/updates/${updateId}`, {
-          method: "PATCH",
-          body: JSON.stringify({ status: "merged" }),
-        });
-      } catch {
-        // silent
-      }
+       // Legacy Supabase stub. Inside app/notes.tsx, handleMergeAllUpdates explicitly updates Firebase natively.
     },
     [user],
   );
 
   const ignoreNoteUpdate = useCallback(
-    async (updateId: string): Promise<void> => {
+    async (updateId: string, noteId?: string): Promise<void> => {
       if (!user) return;
       try {
-        await authFetch(`/tracker-notes/updates/${updateId}`, {
-          method: "PATCH",
-          body: JSON.stringify({ status: "ignored" }),
-        });
+        if (!noteId) {
+            // If noteId is missing, find which note owns this update
+            const q = query(collection(db, "cloud_notes"), where("userId", "==", user.uid));
+            const snap = await getDocs(q);
+            for (const d of snap.docs) {
+                const note = d.data() as FirestoreCloudNote;
+                if (note.updatesList?.some((u: any) => u.id === updateId)) {
+                    await updateDoc(doc(db, "cloud_notes", d.id), {
+                        ignoredUpdateIds: arrayUnion(updateId)
+                    });
+                    break;
+                }
+            }
+        } else {
+            await updateDoc(doc(db, "cloud_notes", noteId), {
+                ignoredUpdateIds: arrayUnion(updateId)
+            });
+        }
       } catch {
         // silent
       }

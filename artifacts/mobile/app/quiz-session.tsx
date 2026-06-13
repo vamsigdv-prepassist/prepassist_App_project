@@ -121,12 +121,23 @@ export default function QuizSessionScreen() {
         style={{
           flex: 1,
           backgroundColor: colors.background,
-          paddingTop: insets.top + 20,
-          paddingHorizontal: 20,
+          paddingTop: insets.top + 12,
         }}
       >
-        <ScrollView showsVerticalScrollIndicator={false}>
-          <View style={{ alignItems: "center", paddingVertical: 24 }}>
+        <View style={[styles.topBar, { justifyContent: "flex-end" }]}>
+          <Pressable
+            onPress={exit}
+            hitSlop={10}
+            style={[styles.iconBtn, { backgroundColor: colors.secondary }]}
+          >
+            <Feather name="x" size={18} color={colors.foreground} />
+          </Pressable>
+        </View>
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{ paddingHorizontal: 20 }}
+        >
+          <View style={{ alignItems: "center", paddingBottom: 24 }}>
             <View
               style={{
                 width: 96,

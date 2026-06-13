@@ -1,6 +1,6 @@
 import { Feather } from "@expo/vector-icons";
 import * as DocumentPicker from "expo-document-picker";
-import * as FileSystem from "expo-file-system";
+import * as FileSystem from "expo-file-system/legacy";
 import * as Haptics from "expo-haptics";
 import * as ImagePicker from "expo-image-picker";
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -20,7 +20,8 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { Stack, useRouter } from "expo-router";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
 import {
   CORE_SUBJECTS,
@@ -30,7 +31,6 @@ import {
 } from "@/contexts/AppContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useColors } from "@/hooks/useColors";
-import { useRouter } from "expo-router";
 import { useNotesSync, type NoteUpdate } from "@/hooks/useNotesSync";
 import {
   notesExtractOcr,
@@ -38,6 +38,7 @@ import {
   notesExtractUrl,
   notesGenerate,
 } from "@/lib/ai";
+import { saveCloudNote as saveCloudVaultNote } from "@/lib/cloud_notes";
 
 function buildMarkdownStyles(colors: {
   foreground: string;
@@ -167,10 +168,118 @@ function subjectColor(subject: string): string {
   );
 }
 
+export function getMarkdownContent(content: string): string {
+  if (!content) return "";
+  
+  // If it doesn't have common HTML tags, return as is.
+  if (!/<[a-z][\s\S]*>/i.test(content)) {
+    return content;
+  }
+
+  let md = content;
+  
+  // Replace Headers
+  md = md.replace(/<h1[^>]*>([\s\S]*?)<\/h1>/gi, '# $1\n\n');
+  md = md.replace(/<h2[^>]*>([\s\S]*?)<\/h2>/gi, '## $1\n\n');
+  md = md.replace(/<h3[^>]*>([\s\S]*?)<\/h3>/gi, '### $1\n\n');
+  md = md.replace(/<h4[^>]*>([\s\S]*?)<\/h4>/gi, '#### $1\n\n');
+  md = md.replace(/<h5[^>]*>([\s\S]*?)<\/h5>/gi, '##### $1\n\n');
+  md = md.replace(/<h6[^>]*>([\s\S]*?)<\/h6>/gi, '###### $1\n\n');
+
+  // Replace Bold
+  md = md.replace(/<strong[^>]*>([\s\S]*?)<\/strong>/gi, '**$1**');
+  md = md.replace(/<b[^>]*>([\s\S]*?)<\/b>/gi, '**$1**');
+
+  // Replace Italic
+  md = md.replace(/<em[^>]*>([\s\S]*?)<\/em>/gi, '*$1*');
+  md = md.replace(/<i[^>]*>([\s\S]*?)<\/i>/gi, '*$1*');
+
+  // Replace Paragraphs
+  md = md.replace(/<p[^>]*>([\s\S]*?)<\/p>/gi, '$1\n\n');
+
+  // Replace List Items
+  md = md.replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, '- $1\n');
+
+  // Replace Lists (strip wrappers)
+  md = md.replace(/<ul[^>]*>/gi, '\n');
+  md = md.replace(/<\/ul>/gi, '\n');
+  md = md.replace(/<ol[^>]*>/gi, '\n');
+  md = md.replace(/<\/ol>/gi, '\n');
+
+  // Replace br
+  md = md.replace(/<br\s*\/?>/gi, '\n');
+
+  // Remove any other lingering HTML tags
+  md = md.replace(/<[^>]+>/g, '');
+
+  // Decode HTML entities
+  md = md.replace(/&nbsp;/g, ' ');
+  md = md.replace(/&amp;/g, '&');
+  md = md.replace(/&lt;/g, '<');
+  md = md.replace(/&gt;/g, '>');
+  md = md.replace(/&quot;/g, '"');
+  md = md.replace(/&#39;/g, "'");
+
+  // Clean up excessive newlines
+  md = md.replace(/\n{3,}/g, '\n\n').trim();
+
+  return md;
+}
+
+export function getHtmlFromMarkdown(md: string): string {
+  if (!md) return "";
+  
+  let html = md;
+  // Escape HTML
+  html = html.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  
+  // Headers
+  html = html.replace(/^###### (.*$)/gim, '<h6>$1</h6>');
+  html = html.replace(/^##### (.*$)/gim, '<h5>$1</h5>');
+  html = html.replace(/^#### (.*$)/gim, '<h4>$1</h4>');
+  html = html.replace(/^### (.*$)/gim, '<h3>$1</h3>');
+  html = html.replace(/^## (.*$)/gim, '<h2>$1</h2>');
+  html = html.replace(/^# (.*$)/gim, '<h1>$1</h1>');
+  
+  // Bold
+  html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+  
+  // Italic
+  html = html.replace(/\*(.*?)\*/g, '<em>$1</em>');
+  
+  // Code inline
+  html = html.replace(/`(.*?)`/g, '<code>$1</code>');
+  
+  // Lists
+  html = html.replace(/^\s*[-*+]\s+(.*)$/gim, '<li>$1</li>');
+  // Wrap sequential <li> tags in <ul>
+  html = html.replace(/(<li>[\s\S]*?<\/li>)/gim, '<ul>$1</ul>');
+  // Clean up adjacent <ul> tags
+  html = html.replace(/<\/ul>\s*<ul>/gim, '');
+  
+  // Paragraphs (wrap anything not already in a block tag)
+  html = html.replace(/^(?!<(h[1-6]|ul|li|p)>)(.*$)/gim, '<p>$1</p>');
+  
+  // Clean empty paragraphs
+  html = html.replace(/<p>\s*<\/p>/gim, '');
+  
+  return html;
+}
+
+export function getPlainTextSnippet(content: string): string {
+  if (!content) return "";
+  let text = getMarkdownContent(content);
+  // Strip common markdown characters and normalize newlines to spaces
+  text = text.replace(/[#*`~_]/g, '');
+  text = text.replace(/\n+/g, ' ').trim();
+  return text;
+}
+
 type SortOption = "newest" | "az" | "starred";
 
 export default function NotesScreen() {
   const colors = useColors();
+  const insets = useSafeAreaInsets();
   const router = useRouter();
   const { user, signOut } = useAuth();
   const {
@@ -194,46 +303,40 @@ export default function NotesScreen() {
     removeCustomSubject,
   } = useApp();
 
-  // On login, pull cloud notes and merge into local state (cloud wins for new ones)
-  const [synced, setSynced] = useState(false);
-  const [syncing, setSyncing] = useState(false);
-  useEffect(() => {
-    if (!user || synced) return;
-    (async () => {
-      setSyncing(true);
-      const cloudNotes = await fetchCloudNotes();
-      const localIds = new Set(trackerNotes.map((n) => n.id));
-      for (const cn of cloudNotes) {
-        if (!localIds.has(cn.id)) {
-          addTrackerNote({
-            title: cn.title,
-            content: cn.content,
-            subject: cn.subject,
-            tags: cn.tags,
-            isStarred: cn.isStarred,
-            imageUri: cn.imageUri,
-            cloudId: cn.id,
-          });
-        }
-      }
-      setSynced(true);
-      setSyncing(false);
-    })();
-  }, [user]);
+  // Cloud sync handled by AppContext subscribeUserNotes automatically
+  const [synced, setSynced] = useState(true);
 
-  // Fetch pending note updates from Vector DB pipeline
+  // Build pending note updates directly from real-time trackerNotes
   useEffect(() => {
     if (!user) { setNoteUpdatesMap({}); return; }
-    (async () => {
-      const updates = await fetchNoteUpdates();
-      const map: Record<string, NoteUpdate[]> = {};
-      for (const u of updates) {
-        if (!map[u.note_id]) map[u.note_id] = [];
-        map[u.note_id].push(u);
+    
+    const map: Record<string, NoteUpdate[]> = {};
+    for (const note of trackerNotes) {
+      if (note.hasUpdates && note.updatesList && note.updatesList.length > 0) {
+        const ignoredSet = new Set(note.ignoredUpdateIds || []);
+        
+        note.updatesList.forEach((u: any) => {
+          if (!ignoredSet.has(u.id)) {
+            if (!map[note.id]) map[note.id] = [];
+            map[note.id].push({
+               id: u.id,
+               note_id: note.id,
+               title: u.title || "Update",
+               source: u.source || "Global Vault",
+               date: u.date || new Date().toISOString(),
+               excerpt: u.excerpt || "",
+               content: u.content || "",
+               imageUrl: u.imageUrl || undefined,
+               status: "pending",
+               created_at: new Date().toISOString()
+            });
+          }
+        });
       }
-      setNoteUpdatesMap(map);
-    })();
-  }, [user, synced]);
+    }
+    
+    setNoteUpdatesMap(map);
+  }, [user, trackerNotes]);
 
   const [activeSubject, setActiveSubject] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -265,6 +368,9 @@ export default function NotesScreen() {
 
   const [customOptional, setCustomOptional] = useState("");
   const [newCustomSubject, setNewCustomSubject] = useState("");
+
+  const [expandedSources, setExpandedSources] = useState<Record<string, boolean>>({});
+  const [expandedSourcesFull, setExpandedSourcesFull] = useState<Record<string, boolean>>({});
 
   // ── Note Updates (RAG) ──────────────────────────────────────────────────
   const [noteUpdatesMap, setNoteUpdatesMap] = useState<Record<string, NoteUpdate[]>>({});
@@ -316,6 +422,15 @@ export default function NotesScreen() {
       ),
     );
   }, [searchQuery, trackerNotes, sortOption]);
+
+  useEffect(() => {
+    if (viewingNote) {
+      const updated = trackerNotes.find(n => n.id === viewingNote.id);
+      if (updated && (updated.hasUpdates !== viewingNote.hasUpdates || updated.content !== viewingNote.content || updated.mergedSources?.length !== viewingNote.mergedSources?.length)) {
+        setViewingNote(updated);
+      }
+    }
+  }, [trackerNotes]);
 
   const openNote = (note: TrackerNote) => {
     setViewingNote(note);
@@ -380,32 +495,201 @@ export default function NotesScreen() {
     ? (noteUpdatesMap[updatesModalNote.id] ?? [])
     : [];
 
+  const handleMergeAllUpdates = async (note: TrackerNote) => {
+    setUpdatesLoading(true);
+    try {
+       const updatesToMerge = pendingUpdatesForModal.map(u => ({
+           id: u.id.replace("fb_", ""),
+           title: u.title,
+           content: u.content,
+           source: u.source,
+           date: u.created_at
+       }));
+
+       const updatesString = updatesToMerge.map((u, i) => `Update ${i+1} (${u.date} - ${u.source}): ${u.title}\n${u.content}`).join('\n\n');
+
+       const prompt = `You are a hyper-intelligent UPSC Civil Services exam mentor specializing exclusively in synthesizing robust conceptual structures.
+
+Your objective is to seamlessly MERGE and SUMMARIZE new global current affairs updates strictly into the user's existing core Notes, explicitly retaining all foundational information securely.
+
+### Existing Core Notes:
+${note.content}
+
+### Newly Detected Constraints (Global Updates):
+${updatesString}
+
+INSTRUCTIONS:
+1. Meticulously synthesize all provided updates (Global News & Vault Data) into the existing notes.
+2. If the existing notes have logical sections (e.g., ### Headers), interweave new updates into their corresponding sections based on context.
+3. If an update introduces a new dimension, create a professional "### Contemporary Context" or specific sub-header to house it.
+4. Prioritize factual density and academic depth; bold key terms and use clean bullet points for readability.
+5. Ensure the final document flows as a single, cohesive, and deeply exhaustive study manual.
+6. Explicitly retain the student's original foundational information; do not summarize the original notes away.
+7. OUTPUT STRICTLY THE RAW MARKDOWN TEXT. NO INTRODUCTIONS, NO CODE BLOCKS, NO CONVERSATIONAL CHATTER. DO NOT add any 'Sources Integrated' or footer section at the end.`;
+
+       const openRouterKey = process.env.EXPO_PUBLIC_OPENROUTER_API_KEY || "";
+
+       const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+           method: "POST",
+           headers: { 
+               "Authorization": `Bearer ${openRouterKey}`, 
+               "Content-Type": "application/json" 
+           },
+           body: JSON.stringify({
+               model: "openai/gpt-4o-mini",
+               max_tokens: 3500,
+               temperature: 0.3,
+               messages: [{ role: "user", content: prompt }]
+           })
+       });
+       
+       if (!res.ok) throw new Error("AI Merge Failed from OpenRouter");
+       const data = await res.json();
+       let mergedText = data.choices?.[0]?.message?.content || "";
+       
+       // Robustly strip outer markdown code blocks (e.g. ```markdown ... ```)
+       mergedText = mergedText.trim();
+       if (mergedText.startsWith("```")) {
+           const firstNewline = mergedText.indexOf("\n");
+           if (firstNewline !== -1) {
+               mergedText = mergedText.substring(firstNewline + 1);
+           }
+           if (mergedText.endsWith("```")) {
+               mergedText = mergedText.substring(0, mergedText.length - 3);
+           }
+       }
+       mergedText = mergedText.trim();
+
+       // Convert markdown -> HTML natively without external libraries
+       const finalHtml = getHtmlFromMarkdown(mergedText);
+
+       const mergedItems = updatesToMerge.map(u => ({
+           title: u.title,
+           source: u.source,
+           date: u.created_at,
+           excerpt: u.content,
+           content: u.content,
+           imageUrl: "" 
+       }));
+
+       const previousSources = note.mergedSources || [];
+       const allMergedSources = [...previousSources, ...mergedItems];
+
+       const now = Date.now();
+       
+       updateTrackerNote(note.id, { content: finalHtml, lastSyncedAt: now, mergedSources: allMergedSources, hasUpdates: false, updatesList: [] });
+       
+       if (user) {
+           const incomingIds = pendingUpdatesForModal.map(u => u.id).filter(Boolean);
+           const newIgnored = Array.from(new Set([...(note.ignoredUpdateIds || []), ...incomingIds]));
+           updateCloudNote(note.id, { 
+               content: finalHtml, 
+               mergedSources: allMergedSources, 
+               hasUpdates: false, 
+               updatesList: [],
+               ignoredUpdateIds: newIgnored
+           });
+       }
+
+       setNoteUpdatesMap(prev => ({ ...prev, [note.id]: [] }));
+       setShowUpdatesModal(false);
+    } catch (e) {
+       console.warn("Merge All Failed:", e);
+       Alert.alert("Merge Failed", "Could not process AI merge. Please try again.");
+    } finally {
+       setUpdatesLoading(false);
+    }
+  };
+
+  const handleIgnoreAllUpdates = async (note: TrackerNote) => {
+    setUpdatesLoading(true);
+    try {
+       const incomingIds = pendingUpdatesForModal.map(u => u.id);
+       const newIgnored = Array.from(new Set([...(note.ignoredUpdateIds || []), ...incomingIds]));
+
+       updateTrackerNote(note.id, { hasUpdates: false, updatesList: [] });
+       if (user) {
+           updateCloudNote(note.id, { 
+               hasUpdates: false, 
+               updatesList: [],
+               ignoredUpdateIds: newIgnored
+           });
+       }
+
+       setNoteUpdatesMap(prev => ({ ...prev, [note.id]: [] }));
+       setShowUpdatesModal(false);
+    } catch (e) {
+       console.warn("Ignore All Failed:", e);
+    } finally {
+       setUpdatesLoading(false);
+    }
+  };
+
   const handleMergeUpdate = async (update: NoteUpdate, note: TrackerNote) => {
     setUpdatesLoading(true);
     const merged = note.content
       ? `${note.content}\n\n---\n\n${update.content}`
       : update.content;
-    const now = Date.now();
-    updateTrackerNote(note.id, { content: merged, lastSyncedAt: now });
-    if (user) updateCloudNote(note.id, { content: merged });
-    await mergeNoteUpdate(update.id);
+      
+    const newMergedSource = {
+      title: update.title,
+      source: update.source,
+      date: update.created_at,
+      excerpt: update.content,
+      content: update.content,
+      imageUrl: ""
+    };
+    
+    const previousSources = note.mergedSources || [];
+    const allMergedSources = [...previousSources, newMergedSource];
+    
+    const incomingId = update.id;
+    const newIgnored = incomingId ? Array.from(new Set([...(note.ignoredUpdateIds || []), incomingId])) : (note.ignoredUpdateIds || []);
+    const remainingUpdates = pendingUpdatesForModal.filter(u => u.id !== update.id);
+    const hasUpdates = remainingUpdates.length > 0;
+    
+    updateTrackerNote(note.id, { content: merged, lastSyncedAt: now, mergedSources: allMergedSources, hasUpdates, updatesList: remainingUpdates });
+    
+    if (user) {
+       updateCloudNote(note.id, { 
+           content: merged, 
+           mergedSources: allMergedSources, 
+           hasUpdates, 
+           updatesList: remainingUpdates,
+           ignoredUpdateIds: newIgnored
+       });
+    }
+
     setNoteUpdatesMap((prev) => {
-      const remaining = (prev[note.id] ?? []).filter((u) => u.id !== update.id);
-      return { ...prev, [note.id]: remaining };
+      return { ...prev, [note.id]: remainingUpdates };
     });
     setUpdatesLoading(false);
-    if ((pendingUpdatesForModal.length - 1) === 0) setShowUpdatesModal(false);
+    if (!hasUpdates) setShowUpdatesModal(false);
   };
 
   const handleIgnoreUpdate = async (update: NoteUpdate, note: TrackerNote) => {
     setUpdatesLoading(true);
-    await ignoreNoteUpdate(update.id);
+    
+    const incomingId = update.id;
+    const newIgnored = Array.from(new Set([...(note.ignoredUpdateIds || []), incomingId]));
+    const remainingUpdates = pendingUpdatesForModal.filter(u => u.id !== update.id);
+    const hasUpdates = remainingUpdates.length > 0;
+
+    updateTrackerNote(note.id, { hasUpdates, updatesList: remainingUpdates });
+    
+    if (user) {
+       updateCloudNote(note.id, { 
+           hasUpdates, 
+           updatesList: remainingUpdates,
+           ignoredUpdateIds: newIgnored
+       });
+    }
+
     setNoteUpdatesMap((prev) => {
-      const remaining = (prev[note.id] ?? []).filter((u) => u.id !== update.id);
-      return { ...prev, [note.id]: remaining };
+      return { ...prev, [note.id]: remainingUpdates };
     });
     setUpdatesLoading(false);
-    if ((pendingUpdatesForModal.length - 1) === 0) setShowUpdatesModal(false);
+    if (!hasUpdates) setShowUpdatesModal(false);
   };
 
   const pickImage = async () => {
@@ -575,20 +859,17 @@ export default function NotesScreen() {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     resetAddModal();
     setShowAddModal(false);
-    // Sync to cloud (fire-and-forget, update id if returned)
+    // Sync to cloud (Firebase onSnapshot will merge it automatically)
     if (user) {
-      const cloudId = await createCloudNote(notePayload);
-      if (cloudId && cloudId !== localNote.id) {
-        // update local note id to match cloud id so future updates work
-        updateTrackerNote(localNote.id, { id: cloudId } as any);
-      }
+      await createCloudNote(notePayload);
     }
   };
 
   const s = styles(colors);
 
   return (
-    <SafeAreaView style={s.safeArea} edges={["top"]}>
+    <View style={[s.safeArea, { paddingTop: insets.top }]}>
+      <Stack.Screen options={{ headerShown: false }} />
       {/* Header */}
       <View style={s.header}>
         {activeSubject ? (
@@ -615,37 +896,6 @@ export default function NotesScreen() {
       </View>
 
       {/* Cloud sync banner */}
-      {!user && !activeSubject && (
-        <TouchableOpacity
-          style={[s.syncBanner, { backgroundColor: colors.primary + "12", borderColor: colors.primary + "30" }]}
-          onPress={() => router.push("/login" as any)}
-        >
-          <Feather name="cloud-off" size={14} color={colors.primary} />
-          <Text style={[s.syncBannerText, { color: colors.primary }]}>
-            Sign in to sync notes across web & app
-          </Text>
-          <Feather name="arrow-right" size={14} color={colors.primary} />
-        </TouchableOpacity>
-      )}
-
-      {user && syncing && !activeSubject && (
-        <View style={[s.syncBanner, { backgroundColor: "#10B981" + "12", borderColor: "#10B981" + "30" }]}>
-          <Feather name="refresh-cw" size={14} color="#10B981" />
-          <Text style={[s.syncBannerText, { color: "#10B981" }]}>Syncing with cloud…</Text>
-        </View>
-      )}
-
-      {user && !syncing && !activeSubject && (
-        <View style={[s.syncBanner, { backgroundColor: "#10B981" + "12", borderColor: "#10B981" + "30" }]}>
-          <Feather name="cloud" size={14} color="#10B981" />
-          <Text style={[s.syncBannerText, { color: "#10B981" }]}>
-            Signed in · notes synced to cloud
-          </Text>
-          <TouchableOpacity onPress={() => { signOut(); setSynced(false); }}>
-            <Text style={{ fontSize: 12, fontFamily: "Inter_600SemiBold", color: "#10B981" }}>Sign out</Text>
-          </TouchableOpacity>
-        </View>
-      )}
 
       {!activeSubject && (
         <View style={s.searchRow}>
@@ -1076,7 +1326,7 @@ export default function NotesScreen() {
 
               {showContentPreview && addContent.length > 0 ? (
                 <View style={[s.previewBox, { borderColor: colors.border }]}>
-                  <Markdown style={buildMarkdownStyles(colors)}>{addContent}</Markdown>
+                  <Markdown style={buildMarkdownStyles(colors)}>{getMarkdownContent(addContent)}</Markdown>
                 </View>
               ) : (
                 <TextInput
@@ -1246,7 +1496,7 @@ export default function NotesScreen() {
                       )}
                       {viewingNote.content ? (
                         <Markdown style={buildMarkdownStyles(colors)}>
-                          {viewingNote.content}
+                          {getMarkdownContent(viewingNote.content)}
                         </Markdown>
                       ) : (
                         <Text style={[s.noteContent, { color: colors.mutedForeground, fontStyle: "italic" }]}>
@@ -1260,6 +1510,97 @@ export default function NotesScreen() {
                               <Text style={[s.tagText, { color: colors.mutedForeground }]}>#{tag}</Text>
                             </View>
                           ))}
+                        </View>
+                      )}
+
+                      {/* Merged Sources Permanent Section */}
+                      {viewingNote.mergedSources && viewingNote.mergedSources.length > 0 && (
+                        <View style={s.mergedSourcesContainer}>
+                          <View style={s.mergedSourcesHeader}>
+                            <Feather name="layers" size={14} color="#059669" style={{ marginRight: 6 }} />
+                            <Text style={s.mergedSourcesTitle}>
+                              DOCUMENT COMPOSED FROM • {viewingNote.mergedSources.length} SOURCE{viewingNote.mergedSources.length !== 1 ? 'S' : ''}
+                            </Text>
+                          </View>
+
+                          {viewingNote.mergedSources.map((src: any, i: number) => {
+                            const key = `merged-src-${i}`;
+                            const isOpen = expandedSources[key] !== false;
+                            const isFullOpen = expandedSourcesFull[key] !== false;
+                            const hasFullContent = src.content && src.content !== src.excerpt;
+                            
+                            const isVault = src.source?.toLowerCase().includes("vault") || src.title.includes("[Vault Data]");
+
+                            return (
+                              <View key={i} style={s.mergedSourceCard}>
+                                <TouchableOpacity
+                                  style={s.mergedSourceTrigger}
+                                  onPress={() => setExpandedSources(prev => ({ ...prev, [key]: !isOpen }))}
+                                  activeOpacity={0.7}
+                                >
+                                  <View style={s.mergedSourceNumberWrap}>
+                                    <Text style={s.mergedSourceNumberText}>{i + 1}</Text>
+                                  </View>
+                                  <View style={s.mergedSourceInfo}>
+                                    <Text style={s.mergedSourceCardTitle} numberOfLines={1}>{src.title}</Text>
+                                    <Text style={s.mergedSourceCardMeta}>{src.source} • {src.date}</Text>
+                                  </View>
+                                  <Feather name={isOpen ? "chevron-up" : "chevron-down"} size={18} color="#10B981" />
+                                </TouchableOpacity>
+
+                                {isOpen && (
+                                  <View style={s.mergedSourceContent}>
+                                    <View style={s.mergedSourceTagsRow}>
+                                      <View style={[s.mergedSourceTag, { backgroundColor: isVault ? "#F3E8FF" : "#D1FAE5", borderColor: isVault ? "#E9D5FF" : "#A7F3D0" }]}>
+                                        <Text style={[s.mergedSourceTagText, { color: isVault ? "#7E22CE" : "#047857" }]}>
+                                          {isVault ? "PERSONAL VAULT" : "GLOBAL NEWS"}
+                                        </Text>
+                                      </View>
+                                      <View style={{ flex: 1 }} />
+                                      <View style={s.mergedSourceDateBox}>
+                                        <Text style={s.mergedSourceDateText}>DATE: {src.date}</Text>
+                                      </View>
+                                    </View>
+
+                                    <View style={s.mergedSourceTextBox}>
+                                      <Markdown style={buildMarkdownStyles(colors)}>
+                                        {getMarkdownContent(isFullOpen ? (src.content || src.excerpt || "No content available.") : (src.excerpt || src.content || "No content available."))}
+                                      </Markdown>
+                                      {hasFullContent && (
+                                        <TouchableOpacity 
+                                          style={s.mergedSourceReadMoreBtn}
+                                          onPress={() => setExpandedSourcesFull(prev => ({ ...prev, [key]: !isFullOpen }))}
+                                        >
+                                          <Text style={s.mergedSourceReadMoreText}>
+                                            {isFullOpen ? "Show Less" : "Read Full Content"}
+                                          </Text>
+                                        </TouchableOpacity>
+                                      )}
+                                    </View>
+
+                                    {src.imageUrl && !src.imageUrl.toLowerCase().endsWith('.pdf') ? (
+                                      <Image source={{ uri: src.imageUrl }} style={s.mergedSourceImage} />
+                                    ) : (
+                                      isVault && (!src.excerpt || src.excerpt.includes("Note:")) && (
+                                        <View style={s.mergedSourceStagedBox}>
+                                          <View style={s.mergedSourceStagedIcon}>
+                                            <Feather name="file-text" size={24} color="#F97316" />
+                                          </View>
+                                          <Text style={s.mergedSourceStagedText}>Staged Vault Document</Text>
+                                        </View>
+                                      )
+                                    )}
+
+                                    <View style={s.mergedSourceFooterBox}>
+                                      <View style={s.mergedSourceSourceBox}>
+                                        <Text style={s.mergedSourceSourceText}>SOURCE: {src.source}</Text>
+                                      </View>
+                                    </View>
+                                  </View>
+                                )}
+                              </View>
+                            );
+                          })}
                         </View>
                       )}
                     </>
@@ -1348,10 +1689,12 @@ export default function NotesScreen() {
         <SafeAreaView style={[s.modal, { backgroundColor: colors.background }]}>
           <View style={s.modalHeader}>
             <View style={{ flex: 1 }}>
-              <Text style={[s.modalTitle, { color: colors.foreground }]}>Note Updates</Text>
+              <Text style={{ fontSize: 18, fontFamily: "Inter_700Bold", color: colors.foreground }}>
+                Note Updates
+              </Text>
               {updatesModalNote && (
                 <Text
-                  style={{ fontSize: 12, fontFamily: "Inter_400Regular", color: colors.mutedForeground }}
+                  style={{ fontSize: 12, fontFamily: "Inter_400Regular", color: colors.mutedForeground, marginTop: 4 }}
                   numberOfLines={1}
                 >
                   {updatesModalNote.title}
@@ -1398,36 +1741,61 @@ export default function NotesScreen() {
                       <Text style={s.updateSourceText}>{update.source}</Text>
                     </View>
                   ) : null}
-                  <Text style={[s.updateContent, { color: colors.foreground }]}>
-                    {update.content}
-                  </Text>
-                  <View style={s.updateActions}>
+                  <View style={s.updateContentBox}>
+                    <Markdown style={buildMarkdownStyles(colors)}>
+                      {getMarkdownContent(update.content)}
+                    </Markdown>
+                  </View>
+
+                  <View style={[s.updateActionRow, { borderTopColor: colors.border }]}>
                     <TouchableOpacity
-                      style={[s.ignoreBtn, { borderColor: colors.border }]}
+                      style={s.updateActionBtn}
                       onPress={() => updatesModalNote && handleIgnoreUpdate(update, updatesModalNote)}
                       disabled={updatesLoading}
                     >
-                      <Text style={[s.ignoreBtnText, { color: colors.mutedForeground }]}>Ignore</Text>
+                      <Text style={[s.updateActionText, { color: colors.mutedForeground }]}>Ignore</Text>
                     </TouchableOpacity>
+
                     <TouchableOpacity
-                      style={[s.mergeBtn, updatesLoading && { opacity: 0.6 }]}
+                      style={[s.updateActionBtn, { backgroundColor: "#10B9811A", paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8 }]}
                       onPress={() => updatesModalNote && handleMergeUpdate(update, updatesModalNote)}
                       disabled={updatesLoading}
                     >
-                      {updatesLoading ? (
-                        <ActivityIndicator size="small" color="#fff" />
-                      ) : (
-                        <>
-                          <Feather name="git-merge" size={14} color="#fff" />
-                          <Text style={s.mergeBtnText}>Merge</Text>
-                        </>
-                      )}
+                      <Text style={[s.updateActionText, { color: "#10B981", fontWeight: "600" }]}>Merge Update</Text>
                     </TouchableOpacity>
                   </View>
                 </View>
               ))
             )}
           </ScrollView>
+
+          {/* AI Merge Footer - Mirrored from Web App */}
+          {pendingUpdatesForModal.length > 0 && updatesModalNote && (
+            <View style={[s.modalFooter, { borderTopColor: colors.border, flexDirection: "row", gap: 12, paddingBottom: insets.bottom || 20 }]}>
+              <TouchableOpacity
+                style={[s.ignoreAllBtn, { backgroundColor: colors.muted, borderColor: colors.border }]}
+                onPress={() => handleIgnoreAllUpdates(updatesModalNote)}
+                disabled={updatesLoading}
+              >
+                <Text style={[s.ignoreAllBtnText, { color: colors.foreground }]}>Ignore All</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[s.mergeAllBtn, updatesLoading && { opacity: 0.6 }]}
+                onPress={() => handleMergeAllUpdates(updatesModalNote)}
+                disabled={updatesLoading}
+              >
+                {updatesLoading ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <>
+                    <Feather name="zap" size={16} color="#fff" />
+                    <Text style={s.mergeAllBtnText}>AI Summarize & Merge</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+          )}
         </SafeAreaView>
       </Modal>
 
@@ -1475,7 +1843,7 @@ export default function NotesScreen() {
           </View>
         </SafeAreaView>
       </Modal>
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -1561,7 +1929,7 @@ function NoteCard({
         </View>
         {note.content ? (
           <Text style={[s.noteSnippet, { color: colors.mutedForeground }]} numberOfLines={2}>
-            {note.content}
+            {getPlainTextSnippet(note.content)}
           </Text>
         ) : note.imageUri ? (
           <Text style={[s.noteSnippet, { color: colors.mutedForeground, fontStyle: "italic" }]}>
@@ -1897,41 +2265,60 @@ function styles(colors: ReturnType<typeof useColors>) {
       fontFamily: "Inter_500Medium",
       color: "#10B981",
     },
-    updateContent: {
+    updateContentBox: {
+      padding: 16,
+    },
+    updateActionRow: {
+      flexDirection: 'row',
+      justifyContent: 'flex-end',
+      alignItems: 'center',
+      padding: 12,
+      borderTopWidth: 1,
+      gap: 12,
+    },
+    updateActionBtn: {
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    updateActionText: {
       fontSize: 13,
-      fontFamily: "Inter_400Regular",
-      lineHeight: 20,
-    },
-    updateActions: {
-      flexDirection: "row",
-      gap: 10,
-      marginTop: 4,
-    },
-    ignoreBtn: {
-      flex: 1,
-      borderWidth: 1,
-      borderRadius: 10,
-      paddingVertical: 10,
-      alignItems: "center",
-    },
-    ignoreBtnText: {
-      fontSize: 14,
       fontFamily: "Inter_500Medium",
     },
-    mergeBtn: {
+    ignoreAllBtn: {
+      flex: 1,
+      borderWidth: 1,
+      borderRadius: 12,
+      paddingVertical: 14,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    ignoreAllBtnText: {
+      fontSize: 14,
+      fontFamily: "Inter_600SemiBold",
+    },
+    mergeAllBtn: {
       flex: 2,
       flexDirection: "row",
       alignItems: "center",
       justifyContent: "center",
       gap: 6,
       backgroundColor: "#10B981",
-      borderRadius: 10,
-      paddingVertical: 10,
+      borderRadius: 12,
+      paddingVertical: 14,
+      shadowColor: "#10B981",
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.3,
+      shadowRadius: 8,
+      elevation: 5,
     },
-    mergeBtnText: {
+    mergeAllBtnText: {
       fontSize: 14,
-      fontFamily: "Inter_600SemiBold",
+      fontFamily: "Inter_700Bold",
       color: "#fff",
+      textTransform: "uppercase",
+      letterSpacing: 0.5,
     },
     modalHeader: {
       flexDirection: "row",
@@ -2169,5 +2556,168 @@ function styles(colors: ReturnType<typeof useColors>) {
       fontSize: 13,
       fontFamily: "Inter_400Regular",
     },
+    mergedSourcesContainer: {
+      marginTop: 24,
+      paddingTop: 16,
+      borderTopWidth: 1,
+      borderTopColor: colors.border,
+    },
+    mergedSourcesHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+      marginBottom: 16,
+      backgroundColor: "rgba(16, 185, 129, 0.1)",
+      alignSelf: "flex-start",
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+      borderRadius: 8,
+    },
+    mergedSourcesTitle: {
+      fontSize: 11,
+      fontFamily: "Inter_800ExtraBold",
+      color: "#059669",
+      letterSpacing: 0.5,
+    },
+    mergedSourceCard: {
+      marginBottom: 12,
+      borderRadius: 16,
+      backgroundColor: colors.card,
+      borderWidth: 1,
+      borderColor: colors.border,
+      overflow: "hidden",
+    },
+    mergedSourceTrigger: {
+      flexDirection: "row",
+      alignItems: "center",
+      padding: 16,
+      gap: 12,
+    },
+    mergedSourceNumberWrap: {
+      width: 28,
+      height: 28,
+      borderRadius: 14,
+      backgroundColor: "rgba(16, 185, 129, 0.1)",
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    mergedSourceNumberText: {
+      fontSize: 12,
+      fontFamily: "Inter_800ExtraBold",
+      color: "#059669",
+    },
+    mergedSourceInfo: {
+      flex: 1,
+    },
+    mergedSourceCardTitle: {
+      fontSize: 14,
+      fontFamily: "Inter_700Bold",
+      color: colors.foreground,
+      marginBottom: 4,
+    },
+    mergedSourceCardMeta: {
+      fontSize: 12,
+      fontFamily: "Inter_500Medium",
+      color: colors.mutedForeground,
+    },
+    mergedSourceContent: {
+      paddingHorizontal: 16,
+      paddingBottom: 16,
+      borderTopWidth: 1,
+      borderTopColor: colors.border,
+      paddingTop: 16,
+      backgroundColor: colors.background,
+    },
+    mergedSourceTagsRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      marginBottom: 12,
+    },
+    mergedSourceTag: {
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+      borderRadius: 6,
+      borderWidth: 1,
+    },
+    mergedSourceTagText: {
+      fontSize: 9,
+      fontFamily: "Inter_800ExtraBold",
+      letterSpacing: 0.5,
+    },
+    mergedSourceDateBox: {
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+    },
+    mergedSourceDateText: {
+      fontSize: 10,
+      fontFamily: "Inter_600SemiBold",
+      color: colors.mutedForeground,
+    },
+    mergedSourceTextBox: {
+      backgroundColor: colors.muted,
+      padding: 12,
+      borderRadius: 12,
+      marginBottom: 12,
+    },
+    mergedSourceReadMoreBtn: {
+      marginTop: 8,
+      paddingVertical: 8,
+      alignItems: "center",
+      borderTopWidth: 1,
+      borderTopColor: colors.border,
+    },
+    mergedSourceReadMoreText: {
+      fontSize: 12,
+      fontFamily: "Inter_700Bold",
+      color: "#059669",
+    },
+    mergedSourceImage: {
+      width: "100%",
+      height: 200,
+      borderRadius: 12,
+      marginBottom: 12,
+    },
+    mergedSourceStagedBox: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 12,
+      backgroundColor: "#FFF7ED",
+      padding: 16,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: "#FFEDD5",
+      marginBottom: 12,
+    },
+    mergedSourceStagedIcon: {
+      width: 44,
+      height: 44,
+      borderRadius: 22,
+      backgroundColor: "#FFEDD5",
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    mergedSourceStagedText: {
+      fontSize: 14,
+      fontFamily: "Inter_700Bold",
+      color: "#C2410C",
+    },
+    mergedSourceFooterBox: {
+      flexDirection: "row",
+      alignItems: "center",
+    },
+    mergedSourceSourceBox: {
+      backgroundColor: colors.card,
+      borderWidth: 1,
+      borderColor: colors.border,
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+      borderRadius: 6,
+    },
+    mergedSourceSourceText: {
+      fontSize: 10,
+      fontFamily: "Inter_700Bold",
+      color: colors.mutedForeground,
+      textTransform: "uppercase",
+      letterSpacing: 0.5,
+    }
   });
 }

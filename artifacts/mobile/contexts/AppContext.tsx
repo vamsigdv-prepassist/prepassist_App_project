@@ -1,4 +1,3 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import React, {
   createContext,
   useCallback,
@@ -6,7 +5,9 @@ import React, {
   useEffect,
   useMemo,
   useState,
+  useRef,
 } from "react";
+import { AppState } from "react-native";
 
 export type VaultDocument = {
   id: string;
@@ -78,9 +79,14 @@ export type TrackerNote = {
   tags: string[];
   isStarred: boolean;
   imageUri?: string;
+  sourceUrl?: string;
   createdAt: number;
   cloudId?: string;
   lastSyncedAt?: number;
+  mergedSources?: any[];
+  hasUpdates?: boolean;
+  updatesList?: any[];
+  ignoredUpdateIds?: string[];
 };
 
 export type SavedArticle = {
@@ -91,6 +97,26 @@ export type SavedArticle = {
   content?: string;
   extractedAt?: number;
   noteIds?: string[];
+};
+
+export type CalendarTask = {
+  id: string;
+  title: string;
+  subject: string;
+  dateStr: string; // YYYY-MM-DD
+  color: string;
+};
+
+export type MindmapNode = {
+  title: string;
+  children?: MindmapNode[];
+};
+
+export type UserMindmap = {
+  id: string;
+  topic: string;
+  mapData: MindmapNode;
+  createdAt: number;
 };
 
 export const CORE_SUBJECTS = [
@@ -167,13 +193,19 @@ type AppState = {
   addCustomSubject: (s: string) => void;
   removeCustomSubject: (s: string) => void;
 
+  calendarTasks: CalendarTask[];
+  addCalendarTask: (t: Omit<CalendarTask, "id">) => CalendarTask;
+  removeCalendarTask: (id: string) => void;
+
+  mindmaps: UserMindmap[];
+  addMindmap: (topic: string, mapData: MindmapNode) => UserMindmap;
+  removeMindmap: (id: string) => void;
+
+  weeklyStudyData: { dateStr: string, studyMinutes: number }[];
   hydrated: boolean;
 };
 
 const AppContext = createContext<AppState | null>(null);
-
-const STORAGE_KEY = "@prepassist/state-v1";
-const ONBOARDING_KEY = "@prepassist/onboarded-v1";
 
 const SUBJECT_COLORS = [
   "#4F39F6",
@@ -188,128 +220,153 @@ function uid() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 9);
 }
 
-const SEED_DOCS: VaultDocument[] = [
-  {
-    id: "seed-doc-1",
-    title: "Indian Polity (Laxmikanth)",
-    subject: "Polity",
-    pages: 642,
-    uploadedAt: Date.now() - 1000 * 60 * 60 * 24 * 6,
-    color: SUBJECT_COLORS[0]!,
-  },
-  {
-    id: "seed-doc-2",
-    title: "Modern History — Spectrum",
-    subject: "History",
-    pages: 488,
-    uploadedAt: Date.now() - 1000 * 60 * 60 * 24 * 3,
-    color: SUBJECT_COLORS[1]!,
-  },
-  {
-    id: "seed-doc-3",
-    title: "NCERT Geography Class XI",
-    subject: "Geography",
-    pages: 214,
-    uploadedAt: Date.now() - 1000 * 60 * 60 * 18,
-    color: SUBJECT_COLORS[2]!,
-  },
-];
+import { auth } from "../lib/firebase";
+import { onAuthStateChanged } from "firebase/auth";
+import { 
+  fetchUserQuizzes, 
+  fetchUserMindmaps, 
+  fetchUserNotes, 
+  subscribeUserNotes,
+  fetchUserArticles, 
+  fetchUserChats,
+  subscribeUserChats,
+  fetchUserEvaluations,
+  saveTrackerNote,
+  saveArticleDb,
+  deleteSavedArticleDb,
+  saveMindmapDb,
+  deleteMindmapDb,
+  saveUserEvaluation,
+  deleteUserEvaluation,
+  saveUserQuiz,
+  deleteUserQuiz,
+  fetchWeeklyStudyData,
+  incrementStudyMinute
+} from "../lib/sync";
 
-const SEED_CHATS: Record<string, ChatMessage[]> = {
-  "seed-doc-1": [
-    {
-      id: uid(),
-      documentId: "seed-doc-1",
-      role: "user",
-      text: "Explain Article 32 in 3 lines.",
-      createdAt: Date.now() - 1000 * 60 * 30,
-    },
-    {
-      id: uid(),
-      documentId: "seed-doc-1",
-      role: "assistant",
-      text: "Article 32 is the constitutional remedy that empowers any citizen to directly approach the Supreme Court when a Fundamental Right is violated. Dr. B. R. Ambedkar called it the 'heart and soul' of the Constitution. The Court can issue five writs — Habeas Corpus, Mandamus, Prohibition, Certiorari, and Quo Warranto — to enforce these rights.",
-      createdAt: Date.now() - 1000 * 60 * 29,
-    },
-  ],
-};
+export const ONBOARDING_KEY = "@prepassist/onboarded-v1";
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [hydrated, setHydrated] = useState(false);
   const [userName, setUserNameState] = useState("Aspirant");
   const [targetExam, setTargetExamState] = useState("UPSC CSE 2026");
   const [streakDays, setStreakDays] = useState(7);
-  const [documents, setDocuments] = useState<VaultDocument[]>(SEED_DOCS);
-  const [chats, setChats] = useState<Record<string, ChatMessage[]>>(SEED_CHATS);
+  const [documents, setDocuments] = useState<VaultDocument[]>([]);
+  const [chats, setChats] = useState<Record<string, ChatMessage[]>>({});
   const [evaluations, setEvaluations] = useState<MainsEvaluation[]>([]);
   const [quizzes, setQuizzes] = useState<QuizAttempt[]>([]);
   const [trackerNotes, setTrackerNotes] = useState<TrackerNote[]>([]);
   const [savedArticles, setSavedArticles] = useState<SavedArticle[]>([]);
   const [optionalSubject, setOptionalSubjectState] = useState<string | null>(null);
   const [customSubjects, setCustomSubjects] = useState<string[]>([]);
+  const [calendarTasks, setCalendarTasks] = useState<CalendarTask[]>([]);
+  const [mindmaps, setMindmaps] = useState<UserMindmap[]>([]);
+  const [weeklyStudyData, setWeeklyStudyData] = useState<{ dateStr: string, studyMinutes: number }[]>([]);
 
-  // Hydrate from AsyncStorage
+  // Hydrate from Firebase securely based on Auth state
   useEffect(() => {
-    (async () => {
-      try {
-        const raw = await AsyncStorage.getItem(STORAGE_KEY);
-        if (raw) {
-          const parsed = JSON.parse(raw);
-          if (parsed.userName) setUserNameState(parsed.userName);
-          if (parsed.targetExam) setTargetExamState(parsed.targetExam);
-          if (typeof parsed.streakDays === "number")
-            setStreakDays(parsed.streakDays);
-          if (Array.isArray(parsed.documents) && parsed.documents.length)
-            setDocuments(parsed.documents);
-          if (parsed.chats && typeof parsed.chats === "object")
-            setChats(parsed.chats);
-          if (Array.isArray(parsed.evaluations))
-            setEvaluations(parsed.evaluations);
-          if (Array.isArray(parsed.quizzes)) setQuizzes(parsed.quizzes);
-          if (Array.isArray(parsed.trackerNotes)) setTrackerNotes(parsed.trackerNotes);
-          if (Array.isArray(parsed.savedArticles)) setSavedArticles(parsed.savedArticles);
-          if (parsed.optionalSubject) setOptionalSubjectState(parsed.optionalSubject);
-          if (Array.isArray(parsed.customSubjects)) setCustomSubjects(parsed.customSubjects);
+    let unsubscribeNotes: (() => void) | undefined;
+    let unsubscribeChats: (() => void) | undefined;
+
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        setUserNameState(user.displayName || "Aspirant");
+        
+        // Start real-time listeners for Notes and RAG pipeline
+        unsubscribeNotes = subscribeUserNotes(user.uid, (notesData) => {
+          setTrackerNotes(notesData);
+        });
+        unsubscribeChats = subscribeUserChats(user.uid, (chatsData) => {
+          setDocuments(chatsData.docs);
+          setChats(chatsData.chats);
+        });
+
+        try {
+          const [
+            quizzesData,
+            mindmapsData,
+            articlesData,
+            evaluationsData,
+            studyData
+          ] = await Promise.all([
+            fetchUserQuizzes(user.uid),
+            fetchUserMindmaps(user.uid),
+            fetchUserArticles(user.uid),
+            fetchUserEvaluations(user.uid),
+            fetchWeeklyStudyData(user.uid)
+          ]);
+
+          setQuizzes(quizzesData);
+          setMindmaps(mindmapsData);
+          setSavedArticles(articlesData);
+          setEvaluations(evaluationsData);
+          setWeeklyStudyData(studyData);
+        } catch (error) {
+          console.error("Firebase sync failed:", error);
         }
-      } catch {
-        // ignore - use defaults
-      } finally {
-        setHydrated(true);
+      } else {
+        if (unsubscribeNotes) unsubscribeNotes();
+        if (unsubscribeChats) unsubscribeChats();
+        
+        // Clear state on logout
+        setDocuments([]);
+        setChats({});
+        setEvaluations([]);
+        setQuizzes([]);
+        setTrackerNotes([]);
+        setSavedArticles([]);
+        setCalendarTasks([]);
+        setMindmaps([]);
+        setWeeklyStudyData([]);
       }
-    })();
+      setHydrated(true);
+    });
+
+    return () => unsubscribe();
   }, []);
 
-  // Persist on change
+  // Study Tracker hook
+  const activeIntervalRef = useRef<NodeJS.Timeout | null>(null);
   useEffect(() => {
-    if (!hydrated) return;
-    const payload = {
-      userName,
-      targetExam,
-      streakDays,
-      documents,
-      chats,
-      evaluations,
-      quizzes,
-      trackerNotes,
-      savedArticles,
-      optionalSubject,
-      customSubjects,
+    const handleStateChange = (nextState: string) => {
+      if (nextState === "active" && auth.currentUser) {
+        if (!activeIntervalRef.current) {
+          activeIntervalRef.current = setInterval(() => {
+            // Increment remote
+            if (auth.currentUser) {
+              incrementStudyMinute(auth.currentUser.uid);
+            }
+            // Increment local state optimistically
+            const today = new Date();
+            const dateStr = today.getFullYear() + "-" + String(today.getMonth() + 1).padStart(2, '0') + "-" + String(today.getDate()).padStart(2, '0');
+            setWeeklyStudyData(prev => {
+              const existing = prev.find(d => d.dateStr === dateStr);
+              if (existing) {
+                return prev.map(d => d.dateStr === dateStr ? { ...d, studyMinutes: d.studyMinutes + 1 } : d);
+              }
+              return [{ dateStr, studyMinutes: 1 }, ...prev];
+            });
+          }, 60000);
+        }
+      } else {
+        if (activeIntervalRef.current) {
+          clearInterval(activeIntervalRef.current);
+          activeIntervalRef.current = null;
+        }
+      }
     };
-    AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(payload)).catch(() => {});
-  }, [
-    hydrated,
-    userName,
-    targetExam,
-    streakDays,
-    documents,
-    chats,
-    evaluations,
-    quizzes,
-    trackerNotes,
-    savedArticles,
-    optionalSubject,
-    customSubjects,
-  ]);
+
+    // Initialize if active immediately
+    handleStateChange(AppState.currentState);
+    
+    const subscription = AppState.addEventListener("change", handleStateChange);
+    return () => {
+      subscription.remove();
+      if (activeIntervalRef.current) {
+        clearInterval(activeIntervalRef.current);
+      }
+    };
+  }, []);
 
   const setUserName = useCallback((name: string) => {
     setUserNameState(name.trim() || "Aspirant");
@@ -377,7 +434,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       id: uid(),
       createdAt: Date.now(),
     };
-    setEvaluations((prev) => [evaluation, ...prev]);
+    setEvaluations((prev) => {
+      const next = [evaluation, ...prev];
+      if (next.length > 7) {
+        const toDelete = next.slice(7);
+        if (auth.currentUser) {
+          toDelete.forEach(d => deleteUserEvaluation(d.id, auth.currentUser!.uid));
+        }
+        return next.slice(0, 7);
+      }
+      return next;
+    });
+
+    if (auth.currentUser) {
+      saveUserEvaluation(evaluation, auth.currentUser.uid).catch(err => {
+        console.error("Failed to auto-sync evaluation to cloud:", err);
+      });
+    }
+
     return evaluation;
   }, []);
 
@@ -387,19 +461,40 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       id: uid(),
       createdAt: Date.now(),
     };
-    setQuizzes((prev) => [quiz, ...prev]);
+    setQuizzes((prev) => {
+      const next = [quiz, ...prev];
+      if (next.length > 7) {
+        const toDelete = next.slice(7);
+        if (auth.currentUser) {
+          toDelete.forEach(d => deleteUserQuiz(d.id));
+        }
+        return next.slice(0, 7);
+      }
+      return next;
+    });
     return quiz;
   }, []);
 
   const updateQuiz = useCallback<AppState["updateQuiz"]>((id, patch) => {
-    setQuizzes((prev) =>
-      prev.map((q) => (q.id === id ? { ...q, ...patch } : q)),
-    );
+    setQuizzes((prev) => {
+      const next = prev.map((q) => (q.id === id ? { ...q, ...patch } : q));
+      if (patch.completed) {
+        const updated = next.find(q => q.id === id);
+        if (updated && auth.currentUser) {
+          saveUserQuiz(updated, auth.currentUser.uid).catch(err => {
+            console.error("Failed to sync quiz to cloud:", err);
+          });
+        }
+      }
+      return next;
+    });
   }, []);
 
   const addTrackerNote = useCallback<AppState["addTrackerNote"]>((n) => {
-    const note: TrackerNote = { ...n, id: uid(), createdAt: Date.now() };
+    const noteId = "mobile_" + uid();
+    const note: TrackerNote = { ...n, id: noteId, createdAt: Date.now() };
     setTrackerNotes((prev) => [note, ...prev]);
+
     return note;
   }, []);
 
@@ -414,15 +509,28 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const addSavedArticle = useCallback<AppState["addSavedArticle"]>((a) => {
     const article: SavedArticle = { ...a, id: uid(), savedAt: Date.now() };
     setSavedArticles((prev) => [article, ...prev]);
+
+    if (auth.currentUser) {
+      saveArticleDb(article, auth.currentUser.uid).catch(err => console.error("Failed to sync article:", err));
+    }
+
     return article;
   }, []);
 
   const updateSavedArticle = useCallback<AppState["updateSavedArticle"]>((id, patch) => {
-    setSavedArticles((prev) => prev.map((a) => (a.id === id ? { ...a, ...patch } : a)));
+    setSavedArticles((prev) => {
+      const next = prev.map((a) => (a.id === id ? { ...a, ...patch } : a));
+      const updatedArticle = next.find(a => a.id === id);
+      if (updatedArticle && auth.currentUser) {
+        saveArticleDb(updatedArticle, auth.currentUser.uid).catch(err => console.error("Failed to sync updated article:", err));
+      }
+      return next;
+    });
   }, []);
 
   const removeSavedArticle = useCallback((id: string) => {
     setSavedArticles((prev) => prev.filter((a) => a.id !== id));
+    deleteSavedArticleDb(id).catch(err => console.error("Failed to delete article db:", err));
   }, []);
 
   const setOptionalSubject = useCallback((s: string | null) => {
@@ -435,6 +543,32 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const removeCustomSubject = useCallback((s: string) => {
     setCustomSubjects((prev) => prev.filter((x) => x !== s));
+  }, []);
+
+  const addCalendarTask = useCallback<AppState["addCalendarTask"]>((t) => {
+    const task: CalendarTask = { ...t, id: uid() };
+    setCalendarTasks((prev) => [...prev, task]);
+    return task;
+  }, []);
+
+  const removeCalendarTask = useCallback((id: string) => {
+    setCalendarTasks((prev) => prev.filter((t) => t.id !== id));
+  }, []);
+
+  const addMindmap = useCallback<AppState["addMindmap"]>((topic, mapData) => {
+    const map: UserMindmap = { id: uid(), topic, mapData, createdAt: Date.now() };
+    setMindmaps((prev) => [map, ...prev]);
+
+    if (auth.currentUser) {
+      saveMindmapDb(map, auth.currentUser.uid).catch(err => console.error("Failed to sync mindmap:", err));
+    }
+
+    return map;
+  }, []);
+
+  const removeMindmap = useCallback((id: string) => {
+    setMindmaps((prev) => prev.filter((m) => m.id !== id));
+    deleteMindmapDb(id).catch(err => console.error("Failed to delete mindmap:", err));
   }, []);
 
   const value = useMemo<AppState>(
@@ -469,6 +603,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       customSubjects,
       addCustomSubject,
       removeCustomSubject,
+      calendarTasks,
+      addCalendarTask,
+      removeCalendarTask,
+      mindmaps,
+      addMindmap,
+      removeMindmap,
+      weeklyStudyData,
       hydrated,
     }),
     [
@@ -502,6 +643,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       customSubjects,
       addCustomSubject,
       removeCustomSubject,
+      calendarTasks,
+      addCalendarTask,
+      removeCalendarTask,
+      mindmaps,
+      addMindmap,
+      removeMindmap,
+      weeklyStudyData,
       hydrated,
     ],
   );
@@ -516,4 +664,3 @@ export function useApp() {
 }
 
 export const SUBJECT_PALETTE = SUBJECT_COLORS;
-export { ONBOARDING_KEY };

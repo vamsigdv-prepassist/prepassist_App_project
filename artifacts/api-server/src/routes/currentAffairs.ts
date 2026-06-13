@@ -2,8 +2,8 @@ import { Router, type IRouter } from "express";
 
 const router: IRouter = Router();
 
-const SUPABASE_URL = process.env.SUPABASE_URL ?? "";
-const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY ?? "";
+const SUPABASE_URL = process.env.SUPABASE_URL ?? process.env.EXPO_PUBLIC_SUPABASE_URL ?? "https://pjubvuvqzwhvqxeeubcv.supabase.co";
+const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY ?? process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBqdWJ2dXZxendodnF4ZWV1YmN2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjgxNDU0NjYsImV4cCI6MjA4MzcyMTQ2Nn0.S6c_saGG8tVNvAegb8e9eP3d5PbPlY0BLDnM0HR5n_0";
 
 function supabaseHeaders() {
   return {

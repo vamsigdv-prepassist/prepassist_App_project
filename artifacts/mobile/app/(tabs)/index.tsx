@@ -20,28 +20,84 @@ import { useColors } from "@/hooks/useColors";
 
 const QUICK_ACTIONS = [
   {
-    id: "vault",
-    title: "Speak to Vault",
-    subtitle: "RAG over your syllabus",
-    icon: "message-circle" as const,
+    id: "current-affairs",
+    title: "Current Affairs",
+    subtitle: "AI mapped daily news",
+    icon: "globe" as const,
     color: "#4F39F6",
-    route: "/vault" as const,
+    route: "/current-affairs" as const,
   },
   {
-    id: "mains",
-    title: "Evaluate Essay",
-    subtitle: "Photograph & grade",
+    id: "evaluate",
+    title: "AI Mains Evaluation",
+    subtitle: "Capture handwritten essays & get graded",
     icon: "edit-3" as const,
+    color: "#D946EF",
+    route: "/evaluate-mains" as const,
+  },
+  {
+    id: "mains-bank",
+    title: "Mains Answer Bank",
+    subtitle: "Study historically accurate descriptive model answers",
+    icon: "book-open" as const,
     color: "#06B6D4",
-    route: "/mains" as const,
+    route: "/mains-bank" as const,
   },
   {
     id: "quiz",
-    title: "Generate Quiz",
-    subtitle: "Prelims drills, instantly",
+    title: "AI Prelims Engine",
+    subtitle: "Generate dynamic MCQs",
     icon: "zap" as const,
     color: "#F59E0B",
-    route: "/quiz" as const,
+    route: "/(tabs)/quiz" as const,
+  },
+  {
+    id: "pdf-quiz",
+    title: "PDF Quiz Extractor",
+    subtitle: "Extract MCQs directly from test series PDFs",
+    icon: "upload-cloud" as const,
+    color: "#4F39F6",
+    route: "/pdf-quiz" as const,
+  },
+  {
+    id: "xray",
+    title: "X-Ray Reader",
+    subtitle: "Scan & analyze textbook pages",
+    icon: "aperture" as const,
+    color: "#EC4899",
+    route: "/xray" as const,
+  },
+  {
+    id: "mentor",
+    title: "AI Mentor",
+    subtitle: "Real-time UPSC Strategy & Doubt Clearing",
+    icon: "cpu" as const,
+    color: "#8B5CF6",
+    route: "/ai-mentor" as const,
+  },
+  {
+    id: "progress",
+    title: "Progress Tracker",
+    subtitle: "Cumulative Exam Telemetry",
+    icon: "bar-chart-2" as const,
+    color: "#10B981",
+    route: "/progress" as const,
+  },
+  {
+    id: "calendar",
+    title: "Study Calendar",
+    subtitle: "Map objectives & plan missions",
+    icon: "calendar" as const,
+    color: "#3B82F6",
+    route: "/calendar" as const,
+  },
+  {
+    id: "mindmaps",
+    title: "Mindmap Engine",
+    subtitle: "Cognitive Topography",
+    icon: "share-2" as const,
+    color: "#F59E0B",
+    route: "/mindmaps" as const,
   },
 ];
 
@@ -50,7 +106,7 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const isWeb = Platform.OS === "web";
-  const { userName, targetExam, streakDays, documents, evaluations, quizzes } =
+  const { userName, targetExam, streakDays, documents, evaluations, quizzes, weeklyStudyData } =
     useApp();
 
   const stats = useMemo(() => {
@@ -72,14 +128,26 @@ export default function HomeScreen() {
             10,
         ) / 10
       : 0;
+      
+    // Create an interesting "Neural Sync" score based on accuracy, eval, and streak
+    const baseSync = 45;
+    const dynamicSync = Math.min(100, Math.round(baseSync + (accuracy * 0.3) + (avgEval * 0.3) + streakDays));
+    
+    // Extract focus year or objective
+    const yearMatch = targetExam.match(/\d{4}/);
+    const focusArea = yearMatch ? yearMatch[0] : "Prelims";
+    
+    // Total AI missions completed
+    const totalMissions = evaluations.length + completedQuizzes.length;
+
     return {
-      docs: documents.length,
-      mainsCount: evaluations.length,
-      quizCount: completedQuizzes.length,
+      neuralSync: `${dynamicSync}%`,
+      missions: totalMissions.toString(),
+      focusArea,
       accuracy,
       avgEval,
     };
-  }, [documents, evaluations, quizzes]);
+  }, [evaluations, quizzes, streakDays, targetExam]);
 
   const recentActivity = useMemo(() => {
     type Item = {
@@ -116,12 +184,24 @@ export default function HomeScreen() {
   }, [evaluations, quizzes]);
 
   const weeklyData = useMemo(() => {
-    const days = ["M", "T", "W", "T", "F", "S", "S"];
-    return days.map((d, i) => ({
-      label: d,
-      value: 30 + Math.round(Math.sin(i + streakDays) * 20 + Math.random() * 30),
-    }));
-  }, [streakDays]);
+    const days = ["S", "M", "T", "W", "T", "F", "S"];
+    const result = [];
+    const today = new Date();
+    
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(today);
+      d.setDate(d.getDate() - i);
+      const dateStr = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, '0') + "-" + String(d.getDate()).padStart(2, '0');
+      
+      const found = weeklyStudyData?.find(w => w.dateStr === dateStr);
+      result.push({
+        label: days[d.getDay()],
+        value: found ? found.studyMinutes : 0,
+        isToday: i === 0
+      });
+    }
+    return result;
+  }, [weeklyStudyData]);
 
 
   return (
@@ -162,23 +242,46 @@ export default function HomeScreen() {
             style={{
               flexDirection: "row",
               alignItems: "center",
-              gap: 6,
-              backgroundColor: colors.secondary,
-              paddingHorizontal: 12,
-              paddingVertical: 8,
-              borderRadius: 999,
+              gap: 12,
             }}
           >
-            <Feather name="zap" size={14} color="#F59E0B" />
-            <Text
+            <View
               style={{
-                color: colors.foreground,
-                fontFamily: "Inter_700Bold",
-                fontSize: 13,
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 6,
+                backgroundColor: colors.secondary,
+                paddingHorizontal: 12,
+                paddingVertical: 8,
+                borderRadius: 999,
               }}
             >
-              {streakDays}d
-            </Text>
+              <Feather name="zap" size={14} color="#F59E0B" />
+              <Text
+                style={{
+                  color: colors.foreground,
+                  fontFamily: "Inter_700Bold",
+                  fontSize: 13,
+                }}
+              >
+                {streakDays}d
+              </Text>
+            </View>
+
+            <Pressable onPress={() => router.push("/profile")}>
+              <View style={{
+                width: 36,
+                height: 36,
+                borderRadius: 18,
+                backgroundColor: colors.primary,
+                alignItems: "center",
+                justifyContent: "center"
+              }}>
+                <Text style={{ color: "#fff", fontFamily: "Inter_700Bold", fontSize: 16 }}>
+                  {userName.charAt(0).toUpperCase()}
+                </Text>
+              </View>
+            </Pressable>
           </View>
         </View>
 
@@ -204,16 +307,16 @@ export default function HomeScreen() {
               </Text>
             </View>
             <View style={styles.heroStats}>
-              <HeroStat label="Documents" value={String(stats.docs)} />
+              <HeroStat label="Neural Sync" value={stats.neuralSync} />
               <View style={styles.heroDivider} />
               <HeroStat
-                label="Avg. Mains"
-                value={stats.avgEval ? `${stats.avgEval}%` : "—"}
+                label="Missions"
+                value={stats.missions}
               />
               <View style={styles.heroDivider} />
               <HeroStat
-                label="Accuracy"
-                value={stats.accuracy ? `${stats.accuracy}%` : "—"}
+                label="Focus Area"
+                value={stats.focusArea}
               />
             </View>
           </LinearGradient>
@@ -294,7 +397,7 @@ export default function HomeScreen() {
                     textTransform: "uppercase",
                   }}
                 >
-                  Study minutes
+                  Study Time
                 </Text>
                 <Text
                   style={{
@@ -305,17 +408,26 @@ export default function HomeScreen() {
                     marginTop: 2,
                   }}
                 >
-                  {weeklyData.reduce((s, d) => s + d.value, 0)}
-                  <Text
-                    style={{
-                      color: colors.mutedForeground,
-                      fontFamily: "Inter_500Medium",
-                      fontSize: 14,
-                    }}
-                  >
-                    {" "}
-                    min
-                  </Text>
+                  {(() => {
+                    const totalMins = weeklyData.reduce((s, d) => s + d.value, 0);
+                    const hrs = Math.floor(totalMins / 60);
+                    const mins = totalMins % 60;
+                    return (
+                      <>
+                        {hrs > 0 ? `${hrs}h ` : ""}
+                        {mins}
+                        <Text
+                          style={{
+                            color: colors.mutedForeground,
+                            fontFamily: "Inter_500Medium",
+                            fontSize: 14,
+                          }}
+                        >
+                          {hrs > 0 ? "m" : " min"}
+                        </Text>
+                      </>
+                    );
+                  })()}
                 </Text>
               </View>
               <Pill label="+12%" icon="trending-up" color="#10B981" background="#10B98115" />
@@ -323,8 +435,8 @@ export default function HomeScreen() {
             <View style={styles.chart}>
               {weeklyData.map((d, i) => {
                 const max = Math.max(...weeklyData.map((w) => w.value));
-                const h = Math.max(8, (d.value / max) * 92);
-                const isToday = i === new Date().getDay() - 1;
+                const h = Math.max(8, max === 0 ? 8 : (d.value / max) * 92);
+                const isToday = d.isToday;
                 return (
                   <View key={i} style={styles.chartBarCol}>
                     <View

@@ -12,14 +12,17 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { Stack } from "expo-router";
 import Markdown from "react-native-markdown-display";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+
+import DateTimePicker from "@react-native-community/datetimepicker";
+
+import { collection, query, where, orderBy, limit, getDocs } from "firebase/firestore";
+import { db } from "@/lib/firebase";
 
 import { CORE_SUBJECTS, useApp } from "@/contexts/AppContext";
 import { useColors } from "@/hooks/useColors";
-
-const DOMAIN = process.env.EXPO_PUBLIC_DOMAIN ?? "";
-const API_BASE = DOMAIN ? `https://${DOMAIN}/api` : "/api";
 
 interface CurrentAffair {
   id: string;
@@ -32,6 +35,7 @@ interface CurrentAffair {
 }
 
 const SOURCES = [
+  { key: "All", label: "All Sources", color: "#0F172B", bg: "#F1F5F9" },
   { key: "The Hindu", label: "The Hindu", color: "#DC2626", bg: "#FEF2F2" },
   { key: "Times of India", label: "Times of India", color: "#2563EB", bg: "#EFF6FF" },
   { key: "PIB Release", label: "PIB", color: "#7C3AED", bg: "#F5F3FF" },
@@ -52,32 +56,13 @@ function isoToday(): string {
   return new Date().toISOString().split("T")[0]!;
 }
 
-function buildDateStrip(count = 60) {
-  const result: { iso: string; day: number; month: string; weekday: string }[] = [];
-  for (let i = 0; i < count; i++) {
-    const d = new Date();
-    d.setDate(d.getDate() - i);
-    result.push({
-      iso: d.toISOString().split("T")[0]!,
-      day: d.getDate(),
-      month: d.toLocaleString("en-IN", { month: "short" }),
-      weekday: d.toLocaleString("en-IN", { weekday: "short" }),
-    });
-  }
-  return result;
-}
+// No longer need buildDateStrip
 
 function formatLongDate(iso: string) {
   const d = new Date(iso + "T00:00:00");
-  const today = isoToday();
-  if (iso === today) return "Today";
-  const yesterday = new Date();
-  yesterday.setDate(yesterday.getDate() - 1);
-  if (iso === yesterday.toISOString().split("T")[0]) return "Yesterday";
   return d.toLocaleDateString("en-IN", {
-    weekday: "long",
     day: "numeric",
-    month: "long",
+    month: "short",
     year: "numeric",
   });
 }
@@ -87,12 +72,10 @@ function ArticleModal({
   article,
   visible,
   onClose,
-  onSave,
 }: {
   article: CurrentAffair | null;
   visible: boolean;
   onClose: () => void;
-  onSave: (article: CurrentAffair) => void;
 }) {
   const colors = useColors();
   if (!article) return null;
@@ -116,13 +99,6 @@ function ArticleModal({
           <View style={[ms.sourcePill, { backgroundColor: src.bg }]}>
             <Text style={[ms.sourceLabel, { color: src.color }]}>{src.label}</Text>
           </View>
-          <TouchableOpacity
-            style={[ms.saveBtn, { backgroundColor: colors.primary + "15", borderColor: colors.primary + "40" }]}
-            onPress={() => onSave(article)}
-          >
-            <Feather name="bookmark" size={14} color={colors.primary} />
-            <Text style={[ms.saveBtnText, { color: colors.primary }]}>Save</Text>
-          </TouchableOpacity>
         </View>
 
         <ScrollView
@@ -168,11 +144,9 @@ function ArticleModal({
 function ArticleCard({
   article,
   onPress,
-  onSave,
 }: {
   article: CurrentAffair;
   onPress: () => void;
-  onSave: (article: CurrentAffair) => void;
 }) {
   const colors = useColors();
   const src = sourceFor(article.source);
@@ -192,15 +166,6 @@ function ArticleCard({
           <View style={[s.sourcePill, { backgroundColor: src.bg }]}>
             <Text style={[s.sourceText, { color: src.color }]}>{article.source}</Text>
           </View>
-          <TouchableOpacity
-            style={[s.saveBtn, { borderColor: colors.border }]}
-            onPress={(e) => {
-              e.stopPropagation();
-              onSave(article);
-            }}
-          >
-            <Feather name="bookmark" size={13} color={colors.mutedForeground} />
-          </TouchableOpacity>
         </View>
 
         {/* Title */}
@@ -237,66 +202,80 @@ function ArticleCard({
 // ─── Main Screen ───────────────────────────────────────────────────────────────
 export default function CurrentAffairsScreen() {
   const colors = useColors();
-  const { addTrackerNote, customSubjects, optionalSubject } = useApp();
+  const insets = useSafeAreaInsets();
 
-  const dateStrip = useMemo(() => buildDateStrip(60), []);
-  const [selectedDate, setSelectedDate] = useState<string>(isoToday());
-  const [availableDates, setAvailableDates] = useState<Set<string>>(new Set());
-  const [datesLoaded, setDatesLoaded] = useState(false);
+  const [selectedDate, setSelectedDate] = useState<string | null>(isoToday());
+  const [showDatePicker, setShowDatePicker] = useState(false);
 
   const [articles, setArticles] = useState<CurrentAffair[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
 
-  // Source toggle — default to The Hindu
+  // Source toggle — default to All
   const [activeSource, setActiveSource] = useState<string>(SOURCES[0].key);
 
   // Article detail modal
   const [modalArticle, setModalArticle] = useState<CurrentAffair | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
 
-  // Save-to-notes modal
-  const [showSaveModal, setShowSaveModal] = useState(false);
-  const [savingArticle, setSavingArticle] = useState<CurrentAffair | null>(null);
-  const [saveSubject, setSaveSubject] = useState(CORE_SUBJECTS[0]!);
+  // No longer fetching available dates since we use a native picker
 
-  const allSubjects = useMemo(
-    () => [
-      ...CORE_SUBJECTS,
-      ...(optionalSubject ? [optionalSubject] : []),
-      ...customSubjects,
-    ],
-    [optionalSubject, customSubjects],
-  );
-
-  // Load available dates on mount
-  useEffect(() => {
-    (async () => {
-      try {
-        const res = await fetch(`${API_BASE}/current-affairs/dates?days=60`);
-        if (res.ok) {
-          const { dates } = (await res.json()) as { dates: string[] };
-          setAvailableDates(new Set(dates));
-        }
-      } catch {
-        // ignore
-      } finally {
-        setDatesLoaded(true);
-      }
-    })();
-  }, []);
-
-  // Fetch articles on date change
-  const fetchArticles = useCallback(async (date: string) => {
+  // Fetch articles on date change from Firebase natively
+  const fetchArticles = useCallback(async (date: string | null) => {
     setLoading(true);
     setError(false);
     setArticles([]);
     try {
-      const res = await fetch(`${API_BASE}/current-affairs?date=${date}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = (await res.json()) as { articles: CurrentAffair[] };
-      setArticles(data.articles ?? []);
-    } catch {
+      let snap;
+
+      if (!date) {
+        // Fetch recent
+        const q = query(
+          collection(db, "current_affairs"),
+          orderBy("createdAt", "desc"),
+          limit(100)
+        );
+        snap = await getDocs(q);
+      } else {
+        const q = query(
+          collection(db, "current_affairs"),
+          where("publishDate", "==", date),
+          limit(100)
+        );
+        snap = await getDocs(q);
+
+        // Fallback to legacy date format like web app
+        if (snap.empty && date.includes('-')) {
+           const [y, m, d] = date.split('-');
+           const fallbackDate = `${d}/${m}/${y}`;
+           const qFallback = query(
+              collection(db, "current_affairs"),
+              where("publishDate", "==", fallbackDate),
+              limit(100)
+           );
+           snap = await getDocs(qFallback);
+        }
+      }
+
+      const docs: CurrentAffair[] = [];
+      snap.forEach((docSnap) => {
+        const data = docSnap.data();
+        docs.push({
+          id: docSnap.id,
+          title: data.title || "",
+          source: data.source || "Unknown",
+          content: data.content || "",
+          tags: data.tags || [],
+          publish_date: data.publishDate || (date ? date : new Date().toISOString().split("T")[0]),
+          created_at: data.createdAt?.toDate?.()?.toISOString() || new Date().toISOString(),
+        });
+      });
+      // Sort in memory to avoid needing a Firestore composite index
+      docs.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+      
+      setArticles(docs);
+    } catch (e) {
+      console.error("Firebase fetch error:", e);
       setError(true);
     } finally {
       setLoading(false);
@@ -309,7 +288,7 @@ export default function CurrentAffairsScreen() {
 
   // Articles filtered by the active source toggle
   const filtered = useMemo(
-    () => articles.filter((a) => a.source === activeSource),
+    () => activeSource === "All" ? articles : articles.filter((a) => a.source === activeSource),
     [articles, activeSource],
   );
 
@@ -328,48 +307,77 @@ export default function CurrentAffairsScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   }
 
-  function handleSavePress(article: CurrentAffair) {
-    setSavingArticle(article);
-    setSaveSubject(CORE_SUBJECTS[0]!);
-    setShowSaveModal(true);
-  }
-
-  function confirmSave() {
-    if (!savingArticle) return;
-    addTrackerNote({
-      title: savingArticle.title,
-      content: `**Source:** ${savingArticle.source}\n**Date:** ${savingArticle.publish_date}\n\n${savingArticle.content}`,
-      subject: saveSubject,
-      tags: [...(savingArticle.tags ?? []), "current-affairs"],
-      isStarred: false,
-    });
-    setShowSaveModal(false);
-    setSavingArticle(null);
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    Alert.alert("Saved!", `"${savingArticle.title}" added to ${saveSubject} notes.`);
-  }
-
   return (
-    <SafeAreaView style={[s.root, { backgroundColor: colors.background }]} edges={["top"]}>
+    <View style={[s.root, { backgroundColor: colors.background, paddingTop: insets.top }]}>
+      <Stack.Screen
+        options={{
+          headerShown: false,
+        }}
+      />
       {/* Header */}
       <View style={s.header}>
         <View>
           <Text style={[s.headerTitle, { color: colors.foreground }]}>Current Affairs</Text>
-          <Text style={[s.headerSub, { color: colors.mutedForeground }]}>
-            {formatLongDate(selectedDate)}
-          </Text>
         </View>
-        {!loading && articles.length > 0 && (
-          <View style={[s.countBadge, { backgroundColor: colors.primary + "15" }]}>
-            <Text style={[s.countText, { color: colors.primary }]}>
-              {articles.length} total
-            </Text>
-          </View>
-        )}
+        <TouchableOpacity
+          style={[s.dateBtn, { backgroundColor: colors.card, borderColor: colors.border }]}
+          onPress={() => setShowDatePicker(true)}
+        >
+          <Feather name="calendar" size={14} color={colors.foreground} />
+          <Text style={[s.dateBtnText, { color: colors.foreground }]}>
+            {selectedDate ? formatLongDate(selectedDate) : "Recent Updates"}
+          </Text>
+        </TouchableOpacity>
       </View>
 
+      <Modal
+        visible={showDatePicker}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowDatePicker(false)}
+      >
+        <TouchableOpacity
+          activeOpacity={1}
+          onPress={() => setShowDatePicker(false)}
+          style={[StyleSheet.absoluteFill, { flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "flex-end" }]}
+        >
+          <TouchableOpacity
+            activeOpacity={1}
+            style={{ backgroundColor: colors.card, paddingBottom: 40, borderTopLeftRadius: 20, borderTopRightRadius: 20 }}
+          >
+            <View style={{ flexDirection: "row", justifyContent: "space-between", padding: 16, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+              <TouchableOpacity onPress={() => { setSelectedDate(null); setShowDatePicker(false); }}>
+                <Text style={{ fontSize: 16, fontFamily: "Inter_600SemiBold", color: colors.primary }}>View Recent</Text>
+              </TouchableOpacity>
+              <Text style={{ fontSize: 16, fontFamily: "Inter_600SemiBold", color: colors.foreground }}>Select Date</Text>
+              <TouchableOpacity onPress={() => setShowDatePicker(false)}>
+                <Text style={{ fontSize: 16, fontFamily: "Inter_600SemiBold", color: colors.primary }}>Done</Text>
+              </TouchableOpacity>
+            </View>
+            <DateTimePicker
+              value={new Date((selectedDate || isoToday()) + "T12:00:00")}
+              mode="date"
+              display="inline"
+              maximumDate={new Date()}
+              onChange={(event, date) => {
+                if (date) {
+                  const tzDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+                  setSelectedDate(tzDate.toISOString().split("T")[0]!);
+                }
+              }}
+            />
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
       {/* Source Toggles */}
-      <View style={[s.toggleRow, { borderBottomColor: colors.border }]}>
+      <View style={{ borderBottomWidth: 1, borderBottomColor: colors.border }}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={s.toggleRowContent}
+          style={s.toggleRow}
+        >
         {SOURCES.map((src) => {
           const active = activeSource === src.key;
           const count = countBySource[src.key] ?? 0;
@@ -418,77 +426,10 @@ export default function CurrentAffairsScreen() {
             </TouchableOpacity>
           );
         })}
+        </ScrollView>
       </View>
 
-      {/* Date strip */}
-      <FlatList
-        data={dateStrip}
-        keyExtractor={(d) => d.iso}
-        horizontal
-        inverted
-        showsHorizontalScrollIndicator={false}
-        style={s.strip}
-        contentContainerStyle={s.stripContent}
-        renderItem={({ item }) => {
-          const isSelected = item.iso === selectedDate;
-          const hasContent = availableDates.has(item.iso);
-          const isToday = item.iso === isoToday();
-          return (
-            <TouchableOpacity
-              style={[
-                s.dateCell,
-                isSelected
-                  ? { backgroundColor: colors.primary }
-                  : isToday
-                  ? { borderWidth: 1.5, borderColor: colors.primary }
-                  : { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 },
-                { borderRadius: 14 },
-              ]}
-              onPress={() => {
-                setSelectedDate(item.iso);
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              }}
-            >
-              <Text
-                style={[
-                  s.weekday,
-                  { color: isSelected ? "rgba(255,255,255,0.75)" : colors.mutedForeground },
-                ]}
-              >
-                {item.weekday}
-              </Text>
-              <Text
-                style={[
-                  s.day,
-                  { color: isSelected ? "#fff" : isToday ? colors.primary : colors.foreground },
-                ]}
-              >
-                {item.day}
-              </Text>
-              <Text
-                style={[
-                  s.month,
-                  { color: isSelected ? "rgba(255,255,255,0.75)" : colors.mutedForeground },
-                ]}
-              >
-                {item.month}
-              </Text>
-              {datesLoaded && hasContent && (
-                <View
-                  style={[
-                    s.dot,
-                    {
-                      backgroundColor: isSelected
-                        ? "rgba(255,255,255,0.7)"
-                        : colors.primary,
-                    },
-                  ]}
-                />
-              )}
-            </TouchableOpacity>
-          );
-        }}
-      />
+      {/* Horizontal List replaced by native picker above */}
 
       {/* Article list */}
       {loading ? (
@@ -522,7 +463,7 @@ export default function CurrentAffairsScreen() {
             <Feather name="file-text" size={32} color={sourceFor(activeSource).color} />
           </View>
           <Text style={[s.emptyTitle, { color: colors.foreground }]}>
-            No {activeSource} articles
+            No articles found
           </Text>
           <Text style={[s.stateText, { color: colors.mutedForeground }]}>
             {articles.length > 0
@@ -538,7 +479,6 @@ export default function CurrentAffairsScreen() {
             <ArticleCard
               article={item}
               onPress={() => openArticle(item)}
-              onSave={handleSavePress}
             />
           )}
           contentContainerStyle={s.listContent}
@@ -551,87 +491,8 @@ export default function CurrentAffairsScreen() {
         article={modalArticle}
         visible={modalVisible}
         onClose={() => setModalVisible(false)}
-        onSave={(a) => {
-          setModalVisible(false);
-          handleSavePress(a);
-        }}
       />
-
-      {/* Save-to-notes bottom sheet */}
-      {showSaveModal && savingArticle && (
-        <View style={s.overlay}>
-          <TouchableOpacity
-            style={StyleSheet.absoluteFill}
-            onPress={() => setShowSaveModal(false)}
-            activeOpacity={1}
-          />
-          <View style={[s.sheet, { backgroundColor: colors.background }]}>
-            <View style={[s.handle, { backgroundColor: colors.border }]} />
-            <Text style={[s.sheetTitle, { color: colors.foreground }]}>
-              Save to Notes
-            </Text>
-            <Text
-              style={[s.sheetSub, { color: colors.mutedForeground }]}
-              numberOfLines={2}
-            >
-              {savingArticle.title}
-            </Text>
-            <Text style={[s.sheetLabel, { color: colors.mutedForeground }]}>
-              Save under Subject
-            </Text>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={s.subjectRow}
-              style={{ marginBottom: 20 }}
-            >
-              {allSubjects.map((subj) => {
-                const active = saveSubject === subj;
-                return (
-                  <TouchableOpacity
-                    key={subj}
-                    style={[
-                      s.subjectPill,
-                      {
-                        backgroundColor: active ? colors.primary : colors.card,
-                        borderColor: active ? colors.primary : colors.border,
-                      },
-                    ]}
-                    onPress={() => setSaveSubject(subj)}
-                  >
-                    <Text
-                      style={[
-                        s.subjectPillText,
-                        { color: active ? "#fff" : colors.mutedForeground },
-                      ]}
-                    >
-                      {subj}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
-            <View style={s.sheetBtns}>
-              <TouchableOpacity
-                style={[s.cancelBtn, { borderColor: colors.border }]}
-                onPress={() => setShowSaveModal(false)}
-              >
-                <Text style={[s.cancelText, { color: colors.mutedForeground }]}>
-                  Cancel
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[s.confirmBtn, { backgroundColor: colors.primary }]}
-                onPress={confirmSave}
-              >
-                <Feather name="bookmark" size={15} color="#fff" />
-                <Text style={s.confirmText}>Save to Notes</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      )}
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -791,24 +652,38 @@ const s = StyleSheet.create({
   },
   headerTitle: { fontSize: 24, fontFamily: "Inter_700Bold" },
   headerSub: { fontSize: 12, fontFamily: "Inter_400Regular", marginTop: 2 },
+  dateBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderWidth: 1,
+    borderRadius: 20,
+  },
+  dateBtnText: {
+    fontSize: 13,
+    fontFamily: "Inter_600SemiBold",
+  },
   countBadge: { borderRadius: 20, paddingHorizontal: 12, paddingVertical: 5 },
   countText: { fontSize: 12, fontFamily: "Inter_700Bold" },
 
   toggleRow: {
-    flexDirection: "row",
-    paddingHorizontal: 16,
     paddingBottom: 12,
+  },
+  toggleRowContent: {
+    paddingHorizontal: 16,
     gap: 8,
-    borderBottomWidth: 1,
+    alignItems: "center",
   },
   toggleBtn: {
-    flex: 1,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 6,
+    paddingHorizontal: 14,
     paddingVertical: 10,
-    borderRadius: 12,
+    borderRadius: 20,
     borderWidth: 1.5,
   },
   toggleLabel: {

@@ -173,47 +173,63 @@ router.post("/ai/notes/extract-url", async (req, res) => {
 
     // ── Web article: use Apify website-content-crawler ─────────────────────
     } else {
-      req.log?.info("notes/extract-url: calling Apify crawler");
+      req.log?.info("notes/extract-url: calling Apify crawler (matching test-main)");
 
-      const apifyUrl =
-        "https://api.apify.com/v2/acts/apify~website-content-crawler/run-sync-get-dataset-items" +
-        `?token=${apifyToken}&timeout=90`;
-
-      const apifyRes = await fetch(apifyUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+      const response = await fetch(`https://api.apify.com/v2/acts/apify~website-content-crawler/runs?token=${apifyToken}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           startUrls: [{ url }],
           maxCrawlPages: 1,
-          crawlerType: "playwright:chrome",
-          proxyConfiguration: { useApifyProxy: true, groups: ["RESIDENTIAL"] },
-          saveMarkdown: true,
-          useStealth: true,
-          pageLoadTimeoutSecs: 60,
-          waitBrowserSteps: [{ wait: 5000 }],
-        }),
+          crawlerType: "playwright:adaptive"
+        })
       });
 
-      if (!apifyRes.ok) {
-        const errBody = await apifyRes.text().catch(() => "");
-        req.log?.error({ status: apifyRes.status, body: errBody }, "Apify request failed");
-        throw new Error(`Apify returned ${apifyRes.status}`);
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.error?.message || "Apify Actor Trigger Failed");
       }
 
-      const items = (await apifyRes.json()) as Array<{
-        markdown?: string;
-        text?: string;
-        metadata?: { title?: string };
-      }>;
+      const runData = await response.json();
+      const runId = runData.data.id;
+      const defaultDatasetId = runData.data.defaultDatasetId;
 
-      req.log?.info({ itemCount: items.length }, "notes/extract-url: Apify done");
+      // Hardened Polling Engine: Wait for Actor to transition to SUCCEEDED
+      let items: any[] = [];
+      let finished = false;
+      
+      for (let i = 0; i < 25; i++) { // Max ~75 seconds of polling
+        await new Promise(r => setTimeout(r, 3000));
+        
+        const statusRes = await fetch(`https://api.apify.com/v2/acts/apify~website-content-crawler/runs/${runId}?token=${apifyToken}`);
+        if (statusRes.ok) {
+          const statusData = await statusRes.json();
+          const status = statusData.data.status;
+          if (status === 'SUCCEEDED') {
+            finished = true;
+            break;
+          } else if (status === 'FAILED' || status === 'ABORTED' || status === 'TIMED-OUT') {
+            throw new Error(`Apify Crawler ${status} during extraction.`);
+          }
+        }
+      }
+
+      if (!finished) {
+        throw new Error("Apify Crawler polling timed out.");
+      }
+
+      const datasetRes = await fetch(`https://api.apify.com/v2/datasets/${defaultDatasetId}/items?token=${apifyToken}`);
+      if (datasetRes.ok) {
+        items = await datasetRes.json();
+      }
+
+      if (!items || items.length === 0) {
+         throw new Error("Target URL analysis complete, but no readable Markdown content could be extracted.");
+      }
 
       const item = items[0];
-      raw = item?.markdown ?? item?.text ?? "";
-      pageTitle =
-        (item?.metadata as { title?: string } | undefined)?.title ??
-        url.split("/").pop() ??
-        "Web Article";
+      raw = item.markdown || item.text || "";
+      pageTitle = item.metadata?.title || url.split('/').pop() || "Extracted Resource";
     }
 
     if (!raw || raw.trim().length < 100) {
@@ -225,11 +241,8 @@ router.post("/ai/notes/extract-url", async (req, res) => {
 
     req.log?.info({ chars: raw.length, pageTitle }, "notes/extract-url: content ready");
 
-    // ── AI: structure raw content into clean study notes ───────────────────
-    const structured = await structureIntoNotes(raw, `${pageTitle} (${url})`);
-    req.log?.info({ chars: structured.length }, "notes/extract-url: structured");
-
-    res.json({ text: structured, title: pageTitle });
+    // Just return the raw extracted text like test-main, bypassing the LLM summarization
+    res.json({ text: raw, title: pageTitle });
   } catch (err) {
     req.log?.error({ err }, "notes/extract-url failed");
     res.status(500).json({ error: "url_extraction_failed" });
