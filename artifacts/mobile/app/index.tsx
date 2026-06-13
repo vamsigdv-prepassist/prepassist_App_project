@@ -11,7 +11,7 @@ export default function IndexRoute() {
     return (
       <View style={{ flex: 1, backgroundColor: colors.background, justifyContent: 'center', alignItems: 'center', gap: 16 }}>
         <Image 
-           source={require('@/assets/images/icon.png')} 
+           source={require('@/assets/images/brand-logo-new.png')} 
            style={{ width: 120, height: 120, resizeMode: 'contain' }} 
         />
         <ActivityIndicator size="large" color={colors.primary} />

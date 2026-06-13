@@ -4,7 +4,7 @@
     "slug": "mobile",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/images/brand-logo-new.png",
     "scheme": [
       "mobile",
       "com.googleusercontent.apps.848376794933-ic74b2ls913mpbvruirjt8jmda736fpq"
@@ -12,7 +12,7 @@
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "splash": {
-      "image": "./assets/images/icon.png",
+      "image": "./assets/images/brand-logo-new.png",
       "resizeMode": "contain",
       "backgroundColor": "#F8FAFC"
     },
