@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { PDFDocument } from "pdf-lib";
 import {
   View,
   Text,
@@ -21,6 +22,9 @@ import { useAuth } from "@/contexts/AuthContext";
 import { uploadNoteStorage, saveCloudNote } from "@/lib/cloud_notes";
 import { notesExtractPdf, notesExtractOcr } from "@/lib/ai";
 import { CORE_SUBJECTS, OPTIONAL_SUBJECTS } from "@/contexts/AppContext";
+import { db, storage } from "@/lib/firebase";
+import { doc, onSnapshot } from "firebase/firestore";
+import { ref, uploadBytesResumable } from "firebase/storage";
 
 interface StagedFile {
   uri: string;
@@ -37,7 +41,7 @@ export default function RawNotesStaging() {
   const { user } = useAuth();
 
   const [stagedFiles, setStagedFiles] = useState<StagedFile[]>([]);
-  
+
   // Text Note State
   const [isTextNoteModalOpen, setIsTextNoteModalOpen] = useState(false);
   const [newTextNoteTitle, setNewTextNoteTitle] = useState("");
@@ -66,8 +70,15 @@ export default function RawNotesStaging() {
       if (!res.canceled && res.assets[0]) {
         const file = res.assets[0];
         if (file.size && file.size > 4 * 1024 * 1024) {
-          Alert.alert("File Too Large", "Please select files under 4MB for optimal AI processing.");
-          return;
+          if (file.mimeType === "application/pdf" || file.name.endsWith(".pdf")) {
+            if (file.size > 100 * 1024 * 1024) {
+              Alert.alert("File Too Large", "Please select PDFs under 100MB.");
+              return;
+            }
+          } else {
+            Alert.alert("File Too Large", "Please select non-PDF files under 4MB for optimal AI processing.");
+            return;
+          }
         }
         setStagedFiles((prev) => [
           ...prev,
@@ -87,6 +98,10 @@ export default function RawNotesStaging() {
       });
       if (!res.canceled && res.assets[0]) {
         const file = res.assets[0];
+        if (file.fileSize && file.fileSize > 4 * 1024 * 1024) {
+          Alert.alert("File Too Large", "Please select files under 4MB for optimal AI processing.");
+          return;
+        }
         setStagedFiles((prev) => [
           ...prev,
           { uri: file.uri, name: file.fileName || "Image_Note.jpg", size: file.fileSize || 0, mimeType: file.mimeType || "image/jpeg" },
@@ -135,7 +150,7 @@ export default function RawNotesStaging() {
 
     setIsFeeding(true);
     setFeedingStatus("Authenticating Blob Data...");
-    
+
     try {
       let extractedText = "Media Object: Synchronized safely to Cloud Vault.";
       let secureUrl = "";
@@ -145,7 +160,7 @@ export default function RawNotesStaging() {
         setFeedingStatus("Syncing Manual Text Nodes...");
       } else {
         const isImage = activeFile.mimeType.startsWith("image/");
-        
+
         // Extract AI Text
         try {
           if (isImage) {
@@ -154,10 +169,35 @@ export default function RawNotesStaging() {
             const ocrRes = await notesExtractOcr(`data:${activeFile.mimeType};base64,${b64}`);
             if (ocrRes) extractedText = ocrRes;
           } else if (activeFile.mimeType === "application/pdf" || activeFile.name.endsWith(".pdf")) {
-            setFeedingStatus("Executing Cloud PDF Vectors...");
-            const b64 = await FileSystem.readAsStringAsync(activeFile.uri, { encoding: "base64" });
-            const pdfRes = await notesExtractPdf(b64);
-            if (pdfRes.text) extractedText = pdfRes.text;
+            setFeedingStatus("Pushing Bytes to Extraction Engine...");
+            const res = await fetch(activeFile.uri);
+            const arrayBuffer = await res.arrayBuffer();
+            
+            const jobId = `job_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+            const storageRef = ref(storage, `extract-split/${user.uid}/${jobId}.pdf`);
+            const metadata = { contentType: "application/pdf" };
+            const uploadTask = uploadBytesResumable(storageRef, arrayBuffer, metadata);
+            
+            await new Promise((resolve, reject) => {
+               uploadTask.on('state_changed', null, (error) => reject(error), () => resolve(true));
+            });
+
+            setFeedingStatus("Extracting Document AI (This might take a minute)...");
+            extractedText = await new Promise<string>((resolve, reject) => {
+               const unsubscribe = onSnapshot(doc(db, 'pdf_jobs', jobId), (docSnap) => {
+                  if (docSnap.exists()) {
+                     const jobData = docSnap.data();
+                     if (jobData.status === 'COMPLETE') {
+                        unsubscribe();
+                        const combined = jobData.chunks ? Object.values(jobData.chunks).join("\n\n---\n\n") : jobData.text;
+                        resolve(combined || "AI Extraction complete but no text generated.");
+                     } else if (jobData.status === 'FAILED') {
+                        unsubscribe();
+                        reject(new Error(jobData.error || "Failed to parse PDF"));
+                     }
+                  }
+               });
+            });
           }
         } catch (extractErr) {
           console.warn("AI Extraction failed, saving physical file only", extractErr);
@@ -175,8 +215,8 @@ export default function RawNotesStaging() {
       const categoryType = CORE_SUBJECTS.includes(selectedSubject)
         ? "core"
         : OPTIONAL_SUBJECTS.includes(selectedSubject)
-        ? "optional"
-        : "other";
+          ? "optional"
+          : "other";
 
       await saveCloudNote({
         userId: user.uid,
@@ -188,7 +228,7 @@ export default function RawNotesStaging() {
         fileUrl: secureUrl || undefined,
         tags: processedTags,
         fileSizeBytes: activeFile.size,
-        isStaged: true, 
+        isStaged: true,
       });
 
       setFeedSuccess(true);
@@ -207,7 +247,7 @@ export default function RawNotesStaging() {
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <Stack.Screen options={{ headerShown: false }} />
-      
+
       <View style={styles.header}>
         <Text style={styles.headerTitle}>
           Raw Notes <Text style={{ color: "#F97316" }}>Staging</Text>
@@ -225,7 +265,7 @@ export default function RawNotesStaging() {
           </View>
           <Text style={styles.uploadTitle}>Stage Resources to Matrix</Text>
           <Text style={styles.uploadSubtitle}>Secure universal vault. Drag any resource or create text notes manually below.</Text>
-          
+
           <View style={styles.uploadBtnRow}>
             <TouchableOpacity style={styles.browseBtn} onPress={pickDocument}>
               <Feather name="file" size={16} color="#2A2A2A" />
@@ -236,7 +276,7 @@ export default function RawNotesStaging() {
               <Text style={styles.browseBtnText}>Gallery</Text>
             </TouchableOpacity>
           </View>
-          
+
           <TouchableOpacity style={styles.textNoteBtn} onPress={() => setIsTextNoteModalOpen(true)}>
             <Feather name="edit-3" size={16} color="#fff" />
             <Text style={styles.textNoteBtnText}>Create Text Note</Text>
@@ -297,7 +337,7 @@ export default function RawNotesStaging() {
                 <Feather name="x" size={24} color="#A89F91" />
               </TouchableOpacity>
             </View>
-            <View style={styles.modalBody}>
+            <ScrollView style={styles.modalBody} showsVerticalScrollIndicator={false}>
               <Text style={styles.inputLabel}>NOTE TITLE</Text>
               <TextInput
                 style={styles.textInput}
@@ -324,7 +364,7 @@ export default function RawNotesStaging() {
                   <Text style={styles.actionBtnText}>Add to Staging Array</Text>
                 </TouchableOpacity>
               </View>
-            </View>
+            </ScrollView>
           </KeyboardAvoidingView>
         </View>
       )}
@@ -550,7 +590,7 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_600SemiBold",
     color: "#2A2A2A",
   },
-  textArea: { minHeight: 120, fontFamily: "Inter_500Medium" },
+  textArea: { minHeight: 120, maxHeight: 250, fontFamily: "Inter_500Medium" },
   modalActions: { flexDirection: "row", gap: 12, marginTop: 24 },
   cancelBtn: { flex: 1, backgroundColor: "#F3EFE9", paddingVertical: 16, borderRadius: 16, alignItems: "center" },
   cancelBtnText: { fontSize: 14, fontFamily: "Inter_700Bold", color: "#A89F91" },

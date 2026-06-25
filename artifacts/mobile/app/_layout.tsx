@@ -64,7 +64,8 @@ function RootLayoutNav() {
     <Stack screenOptions={{ 
       headerBackTitle: "Back",
       gestureEnabled: true,
-      fullScreenGestureEnabled: true
+      fullScreenGestureEnabled: true,
+      headerShown: false
     }}>
       <Stack.Screen name="login" options={{ headerShown: false }} />
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />

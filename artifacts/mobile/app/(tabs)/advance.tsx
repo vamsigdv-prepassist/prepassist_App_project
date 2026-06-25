@@ -50,7 +50,7 @@ export default function VaultMenuScreen() {
   return (
     <SafeAreaView style={[styles.root, { backgroundColor: colors.background }]} edges={["top"]}>
       <View style={styles.header}>
-        <Text style={[styles.headerTitle, { color: colors.foreground }]}>Advance</Text>
+        <Text style={[styles.headerTitle, { color: colors.foreground }]}>Menu</Text>
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>

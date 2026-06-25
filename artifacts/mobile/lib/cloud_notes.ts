@@ -61,21 +61,23 @@ export const saveCloudNote = async (note: CloudNote): Promise<string> => {
 
     await setDoc(doc(db, "cloud_notes", noteId), firestorePayload);
 
-    // Trigger Web App Vectorization Background Process
+    // Trigger Native API-Server RAG Background Process
     try {
       const DOMAIN = process.env.EXPO_PUBLIC_DOMAIN ?? "";
       const API_BASE = process.env.EXPO_PUBLIC_API_URL || (DOMAIN ? `https://${DOMAIN}/api` : "http://localhost:3000/api");
       
       const token = await auth.currentUser?.getIdToken();
       if (token) {
-        fetch(`${API_BASE}/notes/vectorize`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${token}`
-          },
-          body: JSON.stringify({ noteId })
-        }).catch(err => console.error("Web vectorization fetch failed:", err));
+        setTimeout(() => {
+          fetch(`${API_BASE}/rag/sync`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${token}`
+            },
+            body: JSON.stringify({ noteId })
+          }).catch(err => console.error("Native RAG sync fetch failed:", err));
+        }, 1500);
       }
     } catch (e) {
       console.warn("Async Pinecone sync trigger failed:", e);

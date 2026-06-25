@@ -19,17 +19,20 @@ import { Stack } from "expo-router";
 
 import { useAuth } from "@/contexts/AuthContext";
 import { useColors } from "@/hooks/useColors";
-import { useAppContext, CORE_SUBJECTS } from "@/contexts/AppContext";
-import { saveCloudNote } from "@/lib/cloud_notes";
+import { useApp, CORE_SUBJECTS } from "@/contexts/AppContext";
+import { saveCloudNote, fetchCloudNotes } from "@/lib/cloud_notes";
+import { auth, db } from "@/lib/firebase";
+import { doc, updateDoc, increment } from "firebase/firestore";
+import { bm25Retrieve } from "@/lib/ai";
 
 export default function RAGNotesScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { user } = useAuth();
-  const { addTrackerNote } = useAppContext();
+  const { user, profile } = useAuth();
+  const { addTrackerNote, trackerNotes, updateTrackerNote } = useApp();
 
   const [query, setQuery] = useState("");
-  const [messages, setMessages] = useState<{ role: "user" | "assistant"; content: string }[]>([]);
+  const [messages, setMessages] = useState<{ role: "user" | "assistant"; content: string; sources?: string[]; sourceNotes?: any[] }[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
 
   const [ingestText, setIngestText] = useState("");
@@ -40,6 +43,23 @@ export default function RAGNotesScreen() {
   const handleGenerate = async () => {
     if (!query.trim() || isGenerating) return;
 
+    if (!user || !user.uid) {
+      Alert.alert("Authentication Required", "Please log in to use the Intelligence Engine.");
+      return;
+    }
+
+    if (!profile || profile.credits < 4) {
+      Alert.alert(
+        "Insufficient AI Credits",
+        "RAG Synthesis requires 4 AI Credits. Please upgrade to Pro to continue.",
+        [
+          { text: "Cancel", style: "cancel" },
+          { text: "Upgrade", onPress: () => router.push("/pricing" as never) }
+        ]
+      );
+      return;
+    }
+
     const userQ = query;
     setMessages([{ role: "user", content: userQ }]);
     setQuery("");
@@ -48,25 +68,67 @@ export default function RAGNotesScreen() {
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
-      const DOMAIN = process.env.EXPO_PUBLIC_DOMAIN ?? "";
-      const API_BASE = process.env.EXPO_PUBLIC_API_URL || (DOMAIN ? `https://${DOMAIN}/api` : "http://localhost:3000/api");
+      // Fetch cloud notes for RAG Context
+      const vaultNotes = await fetchCloudNotes(user.uid);
+      
+      // Search everything: Raw Notes (isStaged: true) + Articles/Core Notes (isStaged: false)
+      const allSearchableNotes = vaultNotes.filter(n => !n.content?.includes("AI Extraction Offline"));
+      
+      const chunks = allSearchableNotes.map(n => n.title + "\n" + (n.content || ""));
+      const bestChunks = bm25Retrieve(chunks, userQ, 4); // Top 4 matches across everything
+      const matchedVaultNotes = allSearchableNotes.filter(n => bestChunks.includes(n.title + "\n" + (n.content || "")));
+      
+      const sourceTitles = matchedVaultNotes.map(n => n.title);
 
-      const response = await fetch(`${API_BASE}/notes/generate`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({ topic: userQ })
+      const rawTexts = matchedVaultNotes
+        .map(n => `Title: ${n.title}\nContent: ${n.content?.substring(0, 1500)}`)
+        .join("\n\n---\n\n");
+
+      const prompt = `You are a hyper-intelligent UPSC Civil Services exam mentor specializing in Retrieval-Augmented Generation.
+The user wants a comprehensive study note on the following topic: "${userQ}"
+
+### Source 1: User's Knowledge Vault (Raw Notes & Articles)
+${rawTexts ? rawTexts : "No vault uploads found."}
+
+### INSTRUCTIONS:
+1. Synthesize a highly structured, deeply analytical note on the topic.
+2. You MUST explicitly incorporate relevant facts, data, or arguments from the "User's Vault Uploads" provided above.
+3. Use a professional UPSC format (clear headings, bullet points, contemporary context).
+4. Do not mention that you are an AI or make conversational chat. Just output the final Markdown note.`;
+
+      const openRouterKey = process.env.EXPO_PUBLIC_OPENROUTER_API_KEY || "";
+
+      const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+           method: "POST",
+           headers: { 
+               "Authorization": `Bearer ${openRouterKey}`, 
+               "Content-Type": "application/json" 
+           },
+           body: JSON.stringify({
+               model: "openai/gpt-4o-mini",
+               max_tokens: 3500,
+               temperature: 0.3,
+               messages: [{ role: "user", content: prompt }]
+           })
       });
 
-      if (!response.ok) throw new Error("API responded with " + response.status);
+      if (!response.ok) throw new Error("AI responded with " + response.status);
 
       const data = await response.json();
-      let resultText = data.markdownContext;
+      let resultText = data.choices?.[0]?.message?.content || "";
+      
+      // Strip markdown code blocks if necessary
+      resultText = resultText.replace(/^```[a-z]*\n/i, "").replace(/\n```$/, "").trim();
       
       if (!resultText) throw new Error("AI Returned Null Output Mapping");
 
-      setMessages(prev => [...prev, { role: "assistant", content: resultText }]);
+      if (auth.currentUser) {
+        await updateDoc(doc(db, "users", auth.currentUser.uid), {
+          credits: increment(-4)
+        });
+      }
+
+      setMessages(prev => [...prev, { role: "assistant", content: resultText, sources: sourceTitles, sourceNotes: matchedVaultNotes }]);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
     } catch (err: any) {
@@ -89,30 +151,97 @@ export default function RAGNotesScreen() {
     }, 1500);
   };
 
-  const handleSaveToTracker = async (content: string, userQuery: string) => {
+  const handleSaveToTracker = async (content: string, userQuery: string, sourceNotes: any[]) => {
     const subject = CORE_SUBJECTS.find(s => userQuery.toLowerCase().includes(s.toLowerCase())) || "Polity";
     
-    // 1. Save locally to Mobile Notes Tracker UI
-    addTrackerNote({
-      title: `RAG: ${userQuery.substring(0, 30)}...`,
-      subject: subject,
-      content: content,
-      tags: ["RAG", "AI Synthesis"],
-      isStarred: true,
+    const updatesList = sourceNotes.map(sn => ({
+      id: sn.id || "src_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      title: sn.title,
+      source: sn.isStaged ? "Raw Uploads Match" : "Core Notes Match",
+      date: new Date().toISOString(),
+      excerpt: sn.content ? (sn.content.substring(0, 300) + "...") : "No content",
+      content: sn.content || ""
+    }));
+
+    const hasUpdates = updatesList.length > 0;
+
+    // Match Core Notes by ID, and Raw Notes by exact Title
+    const matchingNotesSet = new Map<string, any>();
+    
+    sourceNotes.forEach(sn => {
+      let matchedNote: any;
+      if (!sn.isStaged) {
+         // Core Note match
+         matchedNote = trackerNotes.find(n => n.cloudId === sn.id || n.id === sn.id);
+      } else {
+         // Raw Note match by Content Similarity (BM25)
+         const queryContent = (sn.title + " " + (sn.content || "")).substring(0, 2000);
+         const trackerChunks = trackerNotes.map(n => n.title + "\n" + (n.content || ""));
+         const bestMatchChunk = bm25Retrieve(trackerChunks, queryContent, 1)[0];
+         if (bestMatchChunk) {
+            matchedNote = trackerNotes.find(n => (n.title + "\n" + (n.content || "")) === bestMatchChunk);
+         }
+      }
+      
+      if (matchedNote) {
+         matchingNotesSet.set(matchedNote.id, matchedNote);
+      }
     });
 
-    // 2. Feed it back into the Cloud Matrix (Firestore) to trigger recursive Vectorization
-    if (user) {
-       saveCloudNote({
-          userId: user.uid,
-          title: `RAG: ${userQuery.substring(0, 30)}...`,
-          subject: subject,
-          categoryType: 'core',
-          type: 'text',
-          content: content,
-          tags: ["RAG", "AI Synthesis"],
-          isStaged: false
-       }).catch(console.warn);
+    const matchingNotes = Array.from(matchingNotesSet.values());
+
+    if (matchingNotes.length > 0) {
+      // Append the Raw Notes + the AI Synthesis as updates to all matched Core Notes
+      const aiSynthesisUpdate = {
+        id: "src_" + Date.now().toString(36),
+        title: `AI Synthesis: ${userQuery}`,
+        source: "RAG Pipeline",
+        date: new Date().toISOString(),
+        excerpt: content ? (content.substring(0, 300) + "...") : "No content",
+        content: content
+      };
+      
+      matchingNotes.forEach(matchingNote => {
+        const newUpdates = [...(matchingNote.updatesList || []), aiSynthesisUpdate, ...updatesList.filter(u => u.source === "Raw Uploads Match")];
+        
+        updateTrackerNote(matchingNote.id, {
+          hasUpdates: newUpdates.length > 0,
+          updatesList: newUpdates
+        });
+        
+        if (matchingNote.cloudId) {
+          updateDoc(doc(db, "cloud_notes", matchingNote.cloudId), {
+             hasUpdates: newUpdates.length > 0,
+             updatesList: newUpdates
+          }).catch(err => console.error("Failed to update cloud note:", err));
+        }
+      });
+      // 1. Save locally to Mobile Notes Tracker UI
+      addTrackerNote({
+        title: `RAG: ${userQuery.substring(0, 30)}...`,
+        subject: subject,
+        content: content,
+        tags: ["RAG", "AI Synthesis"],
+        isStarred: true,
+        hasUpdates,
+        updatesList
+      });
+
+      // 2. Feed it back into the Cloud Matrix (Firestore) to trigger recursive Vectorization
+      if (user) {
+         saveCloudNote({
+            userId: user.uid,
+            title: `RAG: ${userQuery.substring(0, 30)}...`,
+            subject: subject,
+            categoryType: 'core',
+            type: 'text',
+            content: content,
+            tags: ["RAG", "AI Synthesis"],
+            isStaged: false,
+            hasUpdates,
+            updatesList
+         }).catch(console.warn);
+      }
     }
     
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -149,23 +278,8 @@ export default function RAGNotesScreen() {
           <View style={[s.instructionsCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <Text style={[s.instTitle, { color: colors.foreground }]}>Intelligent Synthesis Engine</Text>
             <Text style={[s.instDesc, { color: colors.mutedForeground }]}>
-              This engine seamlessly combines three isolated vectors to generate an exhaustive, comprehensive Note styled in the UPSC Civil Services format:
+              This engine dynamically cross-references your entire Knowledge Vault (Raw Notes, Articles, and Core Notes) to generate an exhaustive, comprehensive Note styled in the UPSC Civil Services format.
             </Text>
-            
-            <View style={s.sourceList}>
-              <View style={[s.sourceItem, { backgroundColor: colors.background, borderColor: colors.border }]}>
-                <Text style={[s.sourceLabel, { color: colors.primary }]}>Source 1</Text>
-                <Text style={[s.sourceName, { color: colors.foreground }]}>Vault Uploads</Text>
-              </View>
-              <View style={[s.sourceItem, { backgroundColor: colors.background, borderColor: colors.border }]}>
-                <Text style={[s.sourceLabel, { color: "#10B981" }]}>Source 2</Text>
-                <Text style={[s.sourceName, { color: colors.foreground }]}>Current Affairs DB</Text>
-              </View>
-              <View style={[s.sourceItem, { backgroundColor: colors.background, borderColor: colors.border }]}>
-                <Text style={[s.sourceLabel, { color: "#F59E0B" }]}>Source 3</Text>
-                <Text style={[s.sourceName, { color: colors.foreground }]}>Core AI Knowledge</Text>
-              </View>
-            </View>
           </View>
 
           {/* RAG Chat Matrix */}
@@ -195,14 +309,30 @@ export default function RAGNotesScreen() {
                           {m.content}
                         </Text>
                       ) : (
-                        <Markdown
-                          style={{
-                            body: { color: colors.foreground, fontSize: 15, lineHeight: 22 },
-                            heading3: { fontFamily: "Inter_700Bold", fontSize: 18, marginTop: 10, marginBottom: 5 },
-                          }}
-                        >
-                          {m.content}
-                        </Markdown>
+                        <View>
+                          <Markdown
+                            style={{
+                              body: { color: colors.foreground, fontSize: 15, lineHeight: 22 },
+                              heading3: { fontFamily: "Inter_700Bold", fontSize: 18, marginTop: 10, marginBottom: 5 },
+                            }}
+                          >
+                            {m.content}
+                          </Markdown>
+                          
+                          {m.sources && m.sources.length > 0 && (
+                            <View style={{ marginTop: 16, paddingTop: 16, borderTopWidth: 1, borderTopColor: colors.border }}>
+                              <Text style={{ fontSize: 11, fontFamily: "Inter_800ExtraBold", color: colors.primary, textTransform: "uppercase", marginBottom: 8 }}>Sources Integrated</Text>
+                              <View style={s.sourceList}>
+                                {m.sources.map((src, i) => (
+                                  <View key={i} style={[s.sourceItem, { backgroundColor: colors.background, borderColor: colors.border }]}>
+                                    <Feather name="file-text" size={14} color={colors.primary} />
+                                    <Text style={[s.sourceName, { color: colors.foreground, flex: 1 }]} numberOfLines={1}>{src}</Text>
+                                  </View>
+                                ))}
+                              </View>
+                            </View>
+                          )}
+                        </View>
                       )}
                       
                       {!isUser && !isGenerating && (
@@ -210,7 +340,7 @@ export default function RAGNotesScreen() {
                           style={[s.saveBtn, { borderColor: colors.border, backgroundColor: colors.background }]}
                           onPress={() => {
                              const userQ = messages[idx - 1]?.content || "Synthesis";
-                             handleSaveToTracker(m.content, userQ);
+                             handleSaveToTracker(m.content, userQ, m.sourceNotes || []);
                           }}
                         >
                           <Feather name="book-open" size={14} color="#10B981" />

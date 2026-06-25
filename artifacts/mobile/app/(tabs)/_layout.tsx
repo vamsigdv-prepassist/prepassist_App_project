@@ -19,7 +19,7 @@ function NativeTabLayout() {
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="advance">
         <Icon sf={{ default: "sparkles", selected: "sparkles" }} />
-        <Label>Advance</Label>
+        <Label>Menu</Label>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="quiz">
         <Icon
@@ -97,7 +97,7 @@ function ClassicTabLayout() {
         <Tabs.Screen
           name="advance"
           options={{
-            title: "Advance",
+            title: "Menu",
             tabBarIcon: ({ color }) =>
               isIOS ? (
                 <SymbolView name="sparkles" tintColor={color} size={24} />

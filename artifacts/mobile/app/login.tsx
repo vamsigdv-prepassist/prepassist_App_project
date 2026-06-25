@@ -14,12 +14,22 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { Alert } from "react-native";
 
 import { useAuth } from "@/contexts/AuthContext";
 import { useColors } from "@/hooks/useColors";
 import * as Google from "expo-auth-session/providers/google";
-
-type Mode = "signin" | "signup";
+let GoogleSignin: any = null;
+try {
+  GoogleSignin = require('@react-native-google-signin/google-signin').GoogleSignin;
+  if (Platform.OS !== "web" && GoogleSignin) {
+    GoogleSignin.configure({
+      webClientId: "848376794933-kufnkpjn5orb5p3sinl4l1s8snflkr0v.apps.googleusercontent.com",
+    });
+  }
+} catch (e) {
+  // Gracefully fail in Expo Go
+}
 
 export default function LoginScreen() {
   const colors = useColors();
@@ -37,9 +47,38 @@ export default function LoginScreen() {
 
   const [request, response, promptAsync] = Google.useIdTokenAuthRequest({
     clientId: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID || "YOUR_WEB_CLIENT_ID",
-    iosClientId: process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID,
-    androidClientId: process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID,
   });
+
+  const handleGoogleSignIn = async () => {
+    if (Platform.OS === "web" || !GoogleSignin) {
+      promptAsync();
+    } else {
+      try {
+        setLoading(true);
+        await GoogleSignin.hasPlayServices();
+        const userInfo = await GoogleSignin.signIn();
+        const idToken = userInfo.data?.idToken;
+        if (idToken) {
+          const err = await signInWithGoogleIdToken(idToken);
+          if (err) {
+            setError(err);
+          } else {
+            router.replace("/(tabs)/" as any);
+          }
+        } else {
+          setError("Google Sign-In Error: Missing id_token");
+        }
+      } catch (error: any) {
+        setError(`Code: ${error.code} | Msg: ${error.message}`);
+      } finally {
+        setLoading(false);
+      }
+    }
+  };
+
+
+
+
 
   useEffect(() => {
     if (response?.type === "success") {
@@ -241,7 +280,7 @@ export default function LoginScreen() {
             style={[s.googleBtn, { backgroundColor: colors.background, borderColor: colors.border }]}
             onPress={async () => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              promptAsync();
+              handleGoogleSignIn();
             }}
             disabled={!request || loading}
           >
@@ -249,15 +288,6 @@ export default function LoginScreen() {
             <Text style={[s.googleBtnText, { color: colors.foreground }]}>Continue with Google</Text>
           </TouchableOpacity>
 
-          {/* Skip / continue without account */}
-          <TouchableOpacity
-            style={s.skipBtn}
-            onPress={() => router.replace("/(tabs)/" as any)}
-          >
-            <Text style={[s.skipText, { color: colors.mutedForeground }]}>
-              Continue without account
-            </Text>
-          </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
     </SafeAreaView>

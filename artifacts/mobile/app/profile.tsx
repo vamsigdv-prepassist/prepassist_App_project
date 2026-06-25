@@ -7,9 +7,12 @@ import { auth, db } from "@/lib/firebase";
 import { doc, getDoc } from "firebase/firestore";
 import { useRouter } from "expo-router";
 
+import { useAuth } from "@/contexts/AuthContext";
+
 export default function ProfileScreen() {
   const colors = useColors();
   const router = useRouter();
+  const { signOut } = useAuth();
   const [profile, setProfile] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
@@ -29,6 +32,15 @@ export default function ProfileScreen() {
     };
     fetchUser();
   }, []);
+
+  const handleLogout = async () => {
+    try {
+      await signOut();
+      router.replace("/login");
+    } catch (error) {
+      console.error("Logout failed:", error);
+    }
+  };
 
   if (loading) {
     return (
@@ -70,6 +82,31 @@ export default function ProfileScreen() {
            </View>
         </View>
 
+        <View style={styles.actionsContainer}>
+          <TouchableOpacity 
+            style={[styles.actionBtn, { backgroundColor: colors.card, borderColor: colors.border }]}
+            onPress={() => {
+              if (router.canGoBack()) {
+                router.back();
+              }
+              setTimeout(() => {
+                router.push("/more");
+              }, 100);
+            }}
+          >
+            <Feather name="shield" size={18} color={colors.foreground} />
+            <Text style={[styles.actionBtnText, { color: colors.foreground }]}>Account Details</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={[styles.actionBtn, { backgroundColor: "rgba(239, 68, 68, 0.05)", borderColor: "rgba(239, 68, 68, 0.2)" }]}
+            onPress={handleLogout}
+          >
+            <Feather name="log-out" size={18} color="#EF4444" />
+            <Text style={[styles.actionBtnText, { color: "#EF4444" }]}>Logout</Text>
+          </TouchableOpacity>
+        </View>
+
       </View>
     </SafeAreaView>
   );
@@ -89,5 +126,8 @@ const styles = StyleSheet.create({
   creditsValue: { fontSize: 64, fontFamily: "Inter_800ExtraBold", marginTop: 8, letterSpacing: -2 },
   divider: { height: 1, backgroundColor: "rgba(150,150,150,0.2)", width: "100%", marginVertical: 20 },
   tierBadge: { backgroundColor: "rgba(251, 191, 36, 0.1)", borderWidth: 1, borderColor: "rgba(251, 191, 36, 0.3)", paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 },
-  tierText: { color: "#FBBF24", fontSize: 11, fontFamily: "Inter_800ExtraBold", letterSpacing: 1 }
+  tierText: { color: "#FBBF24", fontSize: 11, fontFamily: "Inter_800ExtraBold", letterSpacing: 1 },
+  actionsContainer: { flexDirection: "row", marginTop: 8, gap: 12 },
+  actionBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", padding: 14, borderRadius: 16, borderWidth: 1, gap: 8 },
+  actionBtnText: { fontSize: 14, fontFamily: "Inter_700Bold" }
 });

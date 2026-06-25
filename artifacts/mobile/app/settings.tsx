@@ -33,6 +33,24 @@ export default function SettingsScreen() {
     </View>
   );
 
+  const SettingLink = ({ icon, title, desc, href }: any) => (
+    <TouchableOpacity 
+      style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}
+      onPress={() => router.push(href)}
+    >
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 16 }}>
+        <View style={[styles.iconWrap, { backgroundColor: colors.background }]}>
+          <Feather name={icon} size={20} color={colors.primary} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={[styles.cardTitle, { color: colors.foreground }]}>{title}</Text>
+          <Text style={[styles.cardDesc, { color: colors.mutedForeground }]}>{desc}</Text>
+        </View>
+        <Feather name="chevron-right" size={20} color={colors.mutedForeground} />
+      </View>
+    </TouchableOpacity>
+  );
+
   return (
     <SafeAreaView style={[styles.root, { backgroundColor: colors.background }]} edges={["top"]}>
       <View style={styles.header}>
@@ -68,6 +86,8 @@ export default function SettingsScreen() {
           value={dataSaver} 
           onValueChange={setDataSaver} 
         />
+
+
 
       </ScrollView>
     </SafeAreaView>

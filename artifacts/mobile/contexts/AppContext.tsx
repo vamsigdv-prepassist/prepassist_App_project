@@ -82,6 +82,7 @@ export type TrackerNote = {
   sourceUrl?: string;
   createdAt: number;
   cloudId?: string;
+  isStaged?: boolean;
   lastSyncedAt?: number;
   mergedSources?: any[];
   hasUpdates?: boolean;

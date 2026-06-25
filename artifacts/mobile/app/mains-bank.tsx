@@ -85,7 +85,7 @@ export default function MainsBankScreen() {
   const handleEvaluate = (questionText: string) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     router.push({
-      pathname: "/(tabs)/mains",
+      pathname: "/evaluate-mains",
       params: { prefillQuestion: questionText },
     });
   };

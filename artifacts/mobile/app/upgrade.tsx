@@ -4,21 +4,128 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import { useRouter } from "expo-router";
+import { Stack, useRouter } from "expo-router";
+import Constants, { ExecutionEnvironment } from "expo-constants";
+import { auth, db } from "@/lib/firebase";
+import { doc, updateDoc, setDoc, increment } from "firebase/firestore";
+
+let RazorpayCheckout: any = null;
+if (Constants.executionEnvironment !== ExecutionEnvironment.StoreClient) {
+  try {
+    RazorpayCheckout = require('react-native-razorpay').default;
+  } catch (e) {
+    console.warn("Razorpay native module not found");
+  }
+}
 
 const { width } = Dimensions.get("window");
 
 export default function UpgradeScreen() {
   const colors = useColors();
   const router = useRouter();
-  const [selectedPack, setSelectedPack] = useState(40);
+  const [selectedPack, setSelectedPack] = useState(1);
 
-  const handleUpgrade = (tier: string) => {
+  const handleUpgrade = async (tier: string) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-    alert(`Initiating In-App Purchase for ${tier}`);
+    
+    const user = auth.currentUser;
+    if (!user) {
+      alert("Please login to subscribe.");
+      return;
+    }
+
+    let amountPaise = 0;
+    let creditsToAdd = 0;
+
+    if (tier === "UPSC Pro") {
+      amountPaise = 39900;
+      creditsToAdd = 200;
+    } else if (tier === "Ultimate") {
+      amountPaise = 69900;
+      creditsToAdd = 400;
+    } else if (tier === "Top Up 1") {
+      amountPaise = 100;
+      creditsToAdd = 1;
+    } else if (tier === "Top Up 40") {
+      amountPaise = 9900;
+      creditsToAdd = 40;
+    } else if (tier === "Top Up 100") {
+      amountPaise = 19900;
+      creditsToAdd = 100;
+    } else if (tier === "Top Up 260") {
+      amountPaise = 49900;
+      creditsToAdd = 260;
+    }
+
+    try {
+      const response = await fetch("https://api.razorpay.com/v1/orders", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": "Basic cnpwX2xpdmVfVDUwc0NDY3VJR01vQWI6UHRVa2d6QWtwNVdmZnZpRklPNDdneDNi"
+        },
+        body: JSON.stringify({
+          amount: amountPaise,
+          currency: "INR",
+          receipt: "receipt_" + user.uid.slice(0,10) + "_" + Date.now(),
+        })
+      });
+      
+      const orderData = await response.json();
+      if (!orderData.id) throw new Error("Failed to generate Order ID");
+
+      if (!RazorpayCheckout) {
+        alert("Native Build Required to test Razorpay.");
+        return;
+      }
+
+      const options = {
+        description: `${tier} Access`,
+        image: 'https://i.imgur.com/3g7nmJC.png',
+        currency: 'INR',
+        key: 'rzp_live_T50sCCcuIGMoAb',
+        amount: amountPaise,
+        name: 'PrepAssist',
+        order_id: orderData.id,
+        prefill: { email: user.email || '', contact: '', name: user.displayName || 'Aspirant' },
+        theme: { color: colors.primary }
+      };
+
+      RazorpayCheckout.open(options).then(async (data: any) => {
+        const userRef = doc(db, "users", user.uid);
+        const updatePayload: any = { credits: increment(creditsToAdd) };
+        if (!tier.includes("Top Up")) {
+          updatePayload.tier = tier;
+        }
+        
+        await updateDoc(userRef, updatePayload);
+
+        const paymentRef = doc(db, "payments", data.razorpay_payment_id);
+        await setDoc(paymentRef, {
+          userId: user.uid,
+          amount: amountPaise / 100,
+          currency: "INR",
+          planName: tier,
+          status: "SUCCESS",
+          orderId: orderData.id,
+          paymentId: data.razorpay_payment_id,
+          signature: data.razorpay_signature,
+          date: new Date()
+        });
+
+        router.push("/payments");
+      }).catch((error: any) => {
+        console.log("Payment cancelled", error);
+      });
+
+    } catch (e: any) {
+      console.error(e);
+      alert("Could not initiate payment. Please try again.");
+    }
   };
 
   const topUpPricing: any = {
+    1: { price: 1 },
     40: { price: 99 },
     100: { price: 199 },
     260: { price: 499 }
@@ -33,6 +140,7 @@ export default function UpgradeScreen() {
 
   return (
     <SafeAreaView style={[styles.root, { backgroundColor: colors.background }]} edges={["top"]}>
+      <Stack.Screen options={{ headerShown: false }} />
       <View style={styles.header}>
         <Text style={[styles.title, { color: colors.foreground }]}>Upgrade Tier</Text>
         <TouchableOpacity onPress={() => router.back()} style={[styles.closeBtn, { backgroundColor: colors.card }]}>
@@ -93,7 +201,7 @@ export default function UpgradeScreen() {
           <Text style={[styles.topupDesc, { color: colors.mutedForeground }]}>Buy instant non-expiring AI Credit bundles for one-off extraction workloads.</Text>
           
           <View style={styles.topupTabs}>
-            {[40, 100, 260].map(amt => (
+            {[1, 40, 100, 260].map(amt => (
               <TouchableOpacity 
                 key={amt} 
                 onPress={() => setSelectedPack(amt)}

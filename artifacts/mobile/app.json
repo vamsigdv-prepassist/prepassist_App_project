@@ -2,9 +2,9 @@
   "expo": {
     "name": "PrepAssist",
     "slug": "mobile",
-    "version": "1.0.0",
+    "version": "1.0.5",
     "orientation": "portrait",
-    "icon": "./assets/images/brand-logo-new.png",
+    "icon": "./assets/images/app-icon.png",
     "scheme": [
       "mobile",
       "com.googleusercontent.apps.848376794933-l22mr9bu1hpk2nj7f9gaom733j6mcs1n",
@@ -20,6 +20,8 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.prepassist.mobile",
+      "buildNumber": "4",
+      "googleServicesFile": "./GoogleService-Info.plist",
       "infoPlist": {
         "NSCameraUsageDescription": "PrepAssist needs camera access to capture handwritten essays for AI evaluation.",
         "NSPhotoLibraryUsageDescription": "PrepAssist needs photo library access to upload essays and study materials.",
@@ -28,10 +30,23 @@
     },
     "android": {
       "package": "com.prepassist.mobile",
+      "versionCode": 7,
+      "googleServicesFile": "./google-services.json",
       "permissions": [
+        "android.permission.INTERNET",
+        "android.permission.ACCESS_NETWORK_STATE",
         "android.permission.CAMERA",
         "android.permission.READ_EXTERNAL_STORAGE",
-        "android.permission.RECORD_AUDIO"
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.VIBRATE"
+      ],
+      "usesFeatures": [
+        { "name": "android.hardware.camera", "required": false },
+        { "name": "android.hardware.camera.autofocus", "required": false },
+        { "name": "android.hardware.microphone", "required": false },
+        { "name": "android.hardware.telephony", "required": false },
+        { "name": "android.hardware.wifi", "required": false }
       ],
       "intentFilters": [
         {
@@ -77,11 +92,20 @@
           "cameraPermission": "PrepAssist needs camera access to capture handwritten essays for AI evaluation."
         }
       ],
-      "@react-native-community/datetimepicker"
+      "@react-native-community/datetimepicker",
+      "@react-native-google-signin/google-signin",
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "useFrameworks": "static"
+          }
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,
-      "reactCompiler": true
+      "reactCompiler": false
     },
     "extra": {
       "router": {

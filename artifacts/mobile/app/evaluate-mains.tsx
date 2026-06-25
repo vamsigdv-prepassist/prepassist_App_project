@@ -21,6 +21,9 @@ import { useApp, type MainsEvaluation } from "@/contexts/AppContext";
 import { useColors } from "@/hooks/useColors";
 import { evaluateMains } from "@/lib/ai";
 import { Stack } from "expo-router";
+import { useAuth } from "@/contexts/AuthContext";
+import { auth, db } from "@/lib/firebase";
+import { doc, updateDoc, increment } from "firebase/firestore";
 
 const WORD_LIMITS = [200, 250, 300, 1000];
 
@@ -33,6 +36,7 @@ export default function EvaluateMainsScreen() {
     prefillQuestion?: string;
     prefillPaper?: string;
   }>();
+  const { profile } = useAuth();
 
   const [inputType, setInputType] = useState<"upload" | "text">("upload");
   const [question, setQuestion] = useState(prefillQuestion || "");
@@ -101,6 +105,18 @@ export default function EvaluateMainsScreen() {
       return;
     }
 
+    if (!profile || profile.credits < 3) {
+      Alert.alert(
+        "Insufficient AI Credits",
+        "Mains Answer Evaluation requires 3 AI Credits. Please upgrade to Pro to continue.",
+        [
+          { text: "Cancel", style: "cancel" },
+          { text: "Upgrade", onPress: () => router.push("/pricing" as never) }
+        ]
+      );
+      return;
+    }
+
     setIsEvaluating(true);
     try {
       const paperVal = wordLimit >= 1000 ? "Essay" : "GS-2";
@@ -134,6 +150,13 @@ export default function EvaluateMainsScreen() {
       if (Platform.OS !== "web") {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       }
+
+      if (auth.currentUser) {
+        await updateDoc(doc(db, "users", auth.currentUser.uid), {
+          credits: increment(-3)
+        });
+      }
+
       router.push(`/mains-result/${e.id}` as never);
       
       // Reset

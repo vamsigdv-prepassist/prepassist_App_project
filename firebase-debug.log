@@ -1,0 +1,180 @@
+[debug] [2026-06-11T06:24:05.273Z] ----------------------------------------------------------------------
+[debug] [2026-06-11T06:24:05.274Z] Command:       /usr/local/bin/node /usr/local/bin/firebase init
+[debug] [2026-06-11T06:24:05.275Z] CLI Version:   15.20.0
+[debug] [2026-06-11T06:24:05.275Z] Platform:      darwin
+[debug] [2026-06-11T06:24:05.275Z] Node Version:  v26.3.0
+[debug] [2026-06-11T06:24:05.275Z] Time:          Thu Jun 11 2026 11:54:05 GMT+0530 (India Standard Time)
+[debug] [2026-06-11T06:24:05.275Z] ----------------------------------------------------------------------
+[debug] 
+[info] 
+     ######## #### ########  ######## ########     ###     ######  ########
+     ##        ##  ##     ## ##       ##     ##  ##   ##  ##       ##
+     ######    ##  ########  ######   ########  #########  ######  ######
+     ##        ##  ##    ##  ##       ##     ## ##     ##       ## ##
+     ##       #### ##     ## ######## ########  ##     ##  ######  ########
+
+You're about to initialize a Firebase project in this directory:
+
+  /Volumes/Crucial X9/prepassist_App_project
+
+Before we get started, keep in mind:
+
+  * You are currently outside your home directory
+
+[info] 
+=== Project Setup
+[info] 
+[info] First, let's associate this project directory with a Firebase project.
+[info] You can create multiple project aliases by running firebase use --add, 
+[info] 
+[debug] [2026-06-11T06:24:17.868Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
+[debug] [2026-06-11T06:24:17.869Z] > authorizing via signed-in user (vamsi.gdv@gmail.com)
+[debug] [2026-06-11T06:24:17.870Z] Checked if tokens are valid: true, expires at: 1781161608073
+[debug] [2026-06-11T06:24:17.870Z] Checked if tokens are valid: true, expires at: 1781161608073
+[debug] [2026-06-11T06:24:17.871Z] >>> [apiv2][query] GET https://firebase.googleapis.com/v1beta1/projects pageSize=100
+[debug] [2026-06-11T06:24:18.927Z] <<< [apiv2][status] GET https://firebase.googleapis.com/v1beta1/projects 200
+[debug] [2026-06-11T06:24:18.927Z] <<< [apiv2][body] GET https://firebase.googleapis.com/v1beta1/projects [omitted]
+[info] 
+=== App Hosting Setup
+[debug] [2026-06-11T06:24:20.915Z] Checked if tokens are valid: true, expires at: 1781161608073
+[debug] [2026-06-11T06:24:20.915Z] Checked if tokens are valid: true, expires at: 1781161608073
+[debug] [2026-06-11T06:24:20.915Z] >>> [apiv2][query] GET https://cloudbilling.googleapis.com/v1/projects/prepassist-v2/billingInfo [none]
+[debug] [2026-06-11T06:24:22.964Z] <<< [apiv2][status] GET https://cloudbilling.googleapis.com/v1/projects/prepassist-v2/billingInfo 200
+[debug] [2026-06-11T06:24:22.965Z] <<< [apiv2][body] GET https://cloudbilling.googleapis.com/v1/projects/prepassist-v2/billingInfo {"name":"projects/prepassist-v2/billingInfo","projectId":"prepassist-v2","billingAccountName":"billingAccounts/01791F-F9FFA1-78FEE4","billingEnabled":true}
+[debug] [2026-06-11T06:24:22.966Z] Checked if tokens are valid: true, expires at: 1781161608073
+[debug] [2026-06-11T06:24:22.966Z] Checked if tokens are valid: true, expires at: 1781161608073
+[debug] [2026-06-11T06:24:22.966Z] >>> [apiv2][query] GET https://serviceusage.googleapis.com/v1/projects/prepassist-v2/services/firebaseapphosting.googleapis.com [none]
+[debug] [2026-06-11T06:24:22.966Z] >>> [apiv2][(partial)header] GET https://serviceusage.googleapis.com/v1/projects/prepassist-v2/services/firebaseapphosting.googleapis.com  x-goog-user-project=prepassist-v2
+[debug] [2026-06-11T06:24:25.191Z] <<< [apiv2][status] GET https://serviceusage.googleapis.com/v1/projects/prepassist-v2/services/firebaseapphosting.googleapis.com 200
+[debug] [2026-06-11T06:24:25.191Z] <<< [apiv2][body] GET https://serviceusage.googleapis.com/v1/projects/prepassist-v2/services/firebaseapphosting.googleapis.com [omitted]
+[debug] [2026-06-11T06:24:25.192Z] Checked if tokens are valid: true, expires at: 1781161608073
+[debug] [2026-06-11T06:24:25.192Z] Checked if tokens are valid: true, expires at: 1781161608073
+[debug] [2026-06-11T06:24:25.192Z] >>> [apiv2][query] POST https://serviceusage.googleapis.com/v1/projects/prepassist-v2/services/firebaseapphosting.googleapis.com:enable [none]
+[debug] [2026-06-11T06:24:25.192Z] >>> [apiv2][(partial)header] POST https://serviceusage.googleapis.com/v1/projects/prepassist-v2/services/firebaseapphosting.googleapis.com:enable  x-goog-user-project=prepassist-v2
+[debug] [2026-06-11T06:24:27.117Z] <<< [apiv2][status] POST https://serviceusage.googleapis.com/v1/projects/prepassist-v2/services/firebaseapphosting.googleapis.com:enable 200
+[debug] [2026-06-11T06:24:27.117Z] <<< [apiv2][body] POST https://serviceusage.googleapis.com/v1/projects/prepassist-v2/services/firebaseapphosting.googleapis.com:enable [omitted]
+[debug] [2026-06-11T06:24:37.130Z] Checked if tokens are valid: true, expires at: 1781161608073
+[debug] [2026-06-11T06:24:37.130Z] Checked if tokens are valid: true, expires at: 1781161608073
+[debug] [2026-06-11T06:24:37.130Z] Checked if tokens are valid: true, expires at: 1781161608073
+[debug] [2026-06-11T06:24:37.130Z] Checked if tokens are valid: true, expires at: 1781161608073
+[debug] [2026-06-11T06:24:37.130Z] Checked if tokens are valid: true, expires at: 1781161608073
+[debug] [2026-06-11T06:24:37.130Z] Checked if tokens are valid: true, expires at: 1781161608073
+[debug] [2026-06-11T06:24:37.131Z] Checked if tokens are valid: true, expires at: 1781161608073
+[debug] [2026-06-11T06:24:37.131Z] Checked if tokens are valid: true, expires at: 1781161608073
+[debug] [2026-06-11T06:24:37.131Z] Checked if tokens are valid: true, expires at: 1781161608073
+[debug] [2026-06-11T06:24:37.131Z] Checked if tokens are valid: true, expires at: 1781161608073
+[debug] [2026-06-11T06:24:37.131Z] Checked if tokens are valid: true, expires at: 1781161608073
+[debug] [2026-06-11T06:24:37.131Z] Checked if tokens are valid: true, expires at: 1781161608073
+[debug] [2026-06-11T06:24:37.131Z] >>> [apiv2][query] GET https://serviceusage.googleapis.com/v1/projects/prepassist-v2/services/developerconnect.googleapis.com [none]
+[debug] [2026-06-11T06:24:37.131Z] >>> [apiv2][(partial)header] GET https://serviceusage.googleapis.com/v1/projects/prepassist-v2/services/developerconnect.googleapis.com  x-goog-user-project=prepassist-v2
+[debug] [2026-06-11T06:24:37.132Z] >>> [apiv2][query] GET https://serviceusage.googleapis.com/v1/projects/prepassist-v2/services/cloudbuild.googleapis.com [none]
+[debug] [2026-06-11T06:24:37.132Z] >>> [apiv2][(partial)header] GET https://serviceusage.googleapis.com/v1/projects/prepassist-v2/services/cloudbuild.googleapis.com  x-goog-user-project=prepassist-v2
+[debug] [2026-06-11T06:24:37.133Z] >>> [apiv2][query] GET https://serviceusage.googleapis.com/v1/projects/prepassist-v2/services/secretmanager.googleapis.com [none]
+[debug] [2026-06-11T06:24:37.133Z] >>> [apiv2][(partial)header] GET https://serviceusage.googleapis.com/v1/projects/prepassist-v2/services/secretmanager.googleapis.com  x-goog-user-project=prepassist-v2
+[debug] [2026-06-11T06:24:37.134Z] >>> [apiv2][query] GET https://serviceusage.googleapis.com/v1/projects/prepassist-v2/services/run.googleapis.com [none]
+[debug] [2026-06-11T06:24:37.134Z] >>> [apiv2][(partial)header] GET https://serviceusage.googleapis.com/v1/projects/prepassist-v2/services/run.googleapis.com  x-goog-user-project=prepassist-v2
+[debug] [2026-06-11T06:24:37.136Z] >>> [apiv2][query] GET https://serviceusage.googleapis.com/v1/projects/prepassist-v2/services/artifactregistry.googleapis.com [none]
+[debug] [2026-06-11T06:24:37.137Z] >>> [apiv2][(partial)header] GET https://serviceusage.googleapis.com/v1/projects/prepassist-v2/services/artifactregistry.googleapis.com  x-goog-user-project=prepassist-v2
+[debug] [2026-06-11T06:24:37.138Z] >>> [apiv2][query] GET https://serviceusage.googleapis.com/v1/projects/prepassist-v2/services/iam.googleapis.com [none]
+[debug] [2026-06-11T06:24:37.138Z] >>> [apiv2][(partial)header] GET https://serviceusage.googleapis.com/v1/projects/prepassist-v2/services/iam.googleapis.com  x-goog-user-project=prepassist-v2
+[debug] [2026-06-11T06:24:39.134Z] <<< [apiv2][status] GET https://serviceusage.googleapis.com/v1/projects/prepassist-v2/services/developerconnect.googleapis.com 200
+[debug] [2026-06-11T06:24:39.134Z] <<< [apiv2][body] GET https://serviceusage.googleapis.com/v1/projects/prepassist-v2/services/developerconnect.googleapis.com [omitted]
+[debug] [2026-06-11T06:24:39.134Z] Checked if tokens are valid: true, expires at: 1781161608073
+[debug] [2026-06-11T06:24:39.134Z] Checked if tokens are valid: true, expires at: 1781161608073
+[debug] [2026-06-11T06:24:39.134Z] >>> [apiv2][query] POST https://serviceusage.googleapis.com/v1/projects/prepassist-v2/services/developerconnect.googleapis.com:enable [none]
+[debug] [2026-06-11T06:24:39.134Z] >>> [apiv2][(partial)header] POST https://serviceusage.googleapis.com/v1/projects/prepassist-v2/services/developerconnect.googleapis.com:enable  x-goog-user-project=prepassist-v2
+[debug] [2026-06-11T06:24:39.136Z] <<< [apiv2][status] GET https://serviceusage.googleapis.com/v1/projects/prepassist-v2/services/artifactregistry.googleapis.com 200
+[debug] [2026-06-11T06:24:39.136Z] <<< [apiv2][body] GET https://serviceusage.googleapis.com/v1/projects/prepassist-v2/services/artifactregistry.googleapis.com [omitted]
+[debug] [2026-06-11T06:24:40.218Z] <<< [apiv2][status] GET https://serviceusage.googleapis.com/v1/projects/prepassist-v2/services/iam.googleapis.com 200
+[debug] [2026-06-11T06:24:40.218Z] <<< [apiv2][body] GET https://serviceusage.googleapis.com/v1/projects/prepassist-v2/services/iam.googleapis.com [omitted]
+[debug] [2026-06-11T06:24:40.274Z] <<< [apiv2][status] GET https://serviceusage.googleapis.com/v1/projects/prepassist-v2/services/cloudbuild.googleapis.com 200
+[debug] [2026-06-11T06:24:40.275Z] <<< [apiv2][body] GET https://serviceusage.googleapis.com/v1/projects/prepassist-v2/services/cloudbuild.googleapis.com [omitted]
+[debug] [2026-06-11T06:24:41.042Z] <<< [apiv2][status] POST https://serviceusage.googleapis.com/v1/projects/prepassist-v2/services/developerconnect.googleapis.com:enable 200
+[debug] [2026-06-11T06:24:41.043Z] <<< [apiv2][body] POST https://serviceusage.googleapis.com/v1/projects/prepassist-v2/services/developerconnect.googleapis.com:enable [omitted]
+[debug] [2026-06-11T06:24:41.306Z] <<< [apiv2][status] GET https://serviceusage.googleapis.com/v1/projects/prepassist-v2/services/run.googleapis.com 200
+[debug] [2026-06-11T06:24:41.306Z] <<< [apiv2][body] GET https://serviceusage.googleapis.com/v1/projects/prepassist-v2/services/run.googleapis.com [omitted]
+[debug] [2026-06-11T06:24:41.614Z] <<< [apiv2][status] GET https://serviceusage.googleapis.com/v1/projects/prepassist-v2/services/secretmanager.googleapis.com 200
+[debug] [2026-06-11T06:24:41.614Z] <<< [apiv2][body] GET https://serviceusage.googleapis.com/v1/projects/prepassist-v2/services/secretmanager.googleapis.com [omitted]
+[debug] [2026-06-11T06:24:51.055Z] Checked if tokens are valid: true, expires at: 1781161608073
+[debug] [2026-06-11T06:24:51.055Z] Checked if tokens are valid: true, expires at: 1781161608073
+[debug] [2026-06-11T06:24:51.055Z] >>> [apiv2][query] POST https://iam.googleapis.com/v1/projects/prepassist-v2/serviceAccounts/firebase-app-hosting-compute@prepassist-v2.iam.gserviceaccount.com:testIamPermissions [none]
+[debug] [2026-06-11T06:24:51.055Z] >>> [apiv2][(partial)header] POST https://iam.googleapis.com/v1/projects/prepassist-v2/serviceAccounts/firebase-app-hosting-compute@prepassist-v2.iam.gserviceaccount.com:testIamPermissions  x-goog-user-project=prepassist-v2
+[debug] [2026-06-11T06:24:51.055Z] >>> [apiv2][body] POST https://iam.googleapis.com/v1/projects/prepassist-v2/serviceAccounts/firebase-app-hosting-compute@prepassist-v2.iam.gserviceaccount.com:testIamPermissions {"permissions":["iam.serviceAccounts.actAs"]}
+[debug] [2026-06-11T06:24:54.180Z] <<< [apiv2][status] POST https://iam.googleapis.com/v1/projects/prepassist-v2/serviceAccounts/firebase-app-hosting-compute@prepassist-v2.iam.gserviceaccount.com:testIamPermissions 404
+[debug] [2026-06-11T06:24:54.181Z] <<< [apiv2][body] POST https://iam.googleapis.com/v1/projects/prepassist-v2/serviceAccounts/firebase-app-hosting-compute@prepassist-v2.iam.gserviceaccount.com:testIamPermissions {"error":{"code":404,"message":"Unknown service account","status":"NOT_FOUND"}}
+[debug] [2026-06-11T06:24:54.182Z] Checked if tokens are valid: true, expires at: 1781161608073
+[debug] [2026-06-11T06:24:54.182Z] Checked if tokens are valid: true, expires at: 1781161608073
+[debug] [2026-06-11T06:24:54.182Z] >>> [apiv2][query] POST https://iam.googleapis.com/v1/projects/prepassist-v2/serviceAccounts [none]
+[debug] [2026-06-11T06:24:54.182Z] >>> [apiv2][body] POST https://iam.googleapis.com/v1/projects/prepassist-v2/serviceAccounts {"accountId":"firebase-app-hosting-compute","serviceAccount":{"displayName":"Firebase App Hosting compute service account","description":"Default service account used to run builds and deploys for Firebase App Hosting"}}
+[debug] [2026-06-11T06:24:56.305Z] <<< [apiv2][status] POST https://iam.googleapis.com/v1/projects/prepassist-v2/serviceAccounts 200
+[debug] [2026-06-11T06:24:56.305Z] <<< [apiv2][body] POST https://iam.googleapis.com/v1/projects/prepassist-v2/serviceAccounts [omitted]
+[debug] [2026-06-11T06:24:56.310Z] Checked if tokens are valid: true, expires at: 1781161608073
+[debug] [2026-06-11T06:24:56.310Z] Checked if tokens are valid: true, expires at: 1781161608073
+[debug] [2026-06-11T06:24:56.311Z] >>> [apiv2][query] POST https://cloudresourcemanager.googleapis.com/v1/projects/prepassist-v2:getIamPolicy [none]
+[debug] [2026-06-11T06:24:57.901Z] <<< [apiv2][status] POST https://cloudresourcemanager.googleapis.com/v1/projects/prepassist-v2:getIamPolicy 200
+[debug] [2026-06-11T06:24:57.902Z] <<< [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects/prepassist-v2:getIamPolicy {"version":1,"etag":"BwZT9GnUXa0=","bindings":[{"role":"roles/cloudaicompanion.serviceAgent","members":["serviceAccount:service-848376794933@gcp-sa-cloudaicompanion.iam.gserviceaccount.com"]},{"role":"roles/cloudbuild.builds.builder","members":["serviceAccount:848376794933@cloudbuild.gserviceaccount.com"]},{"role":"roles/cloudbuild.serviceAgent","members":["serviceAccount:service-848376794933@gcp-sa-cloudbuild.iam.gserviceaccount.com"]},{"role":"roles/compute.instanceGroupManagerServiceAgent","members":["serviceAccount:848376794933@cloudservices.gserviceaccount.com"]},{"role":"roles/compute.serviceAgent","members":["serviceAccount:service-848376794933@compute-system.iam.gserviceaccount.com"]},{"role":"roles/containerregistry.ServiceAgent","members":["serviceAccount:service-848376794933@containerregistry.iam.gserviceaccount.com"]},{"role":"roles/dataflow.serviceAgent","members":["serviceAccount:service-848376794933@dataflow-service-producer-prod.iam.gserviceaccount.com"]},{"role":"roles/editor","members":["serviceAccount:848376794933-compute@developer.gserviceaccount.com","serviceAccount:848376794933@cloudservices.gserviceaccount.com"]},{"role":"roles/firebase.managementServiceAgent","members":["serviceAccount:service-848376794933@gcp-sa-firebase.iam.gserviceaccount.com"]},{"role":"roles/firebase.sdkAdminServiceAgent","members":["serviceAccount:firebase-adminsdk-fbsvc@prepassist-v2.iam.gserviceaccount.com"]},{"role":"roles/firebasedatabase.admin","members":["serviceAccount:firebase-adminsdk-fbsvc@prepassist-v2.iam.gserviceaccount.com"]},{"role":"roles/firebasedataconnect.serviceAgent","members":["serviceAccount:service-848376794933@gcp-sa-firebasedataconnect.iam.gserviceaccount.com"]},{"role":"roles/firebasemods.serviceAgent","members":["serviceAccount:service-848376794933@gcp-sa-firebasemods.iam.gserviceaccount.com"]},{"role":"roles/firebaserules.system","members":["serviceAccount:service-848376794933@firebase-rules.iam.gserviceaccount.com"]},{"role":"roles/firebasestorage.serviceAgent","members":["serviceAccount:service-848376794933@gcp-sa-firebasestorage.iam.gserviceaccount.com"]},{"role":"roles/firestore.serviceAgent","members":["serviceAccount:service-848376794933@gcp-sa-firestore.iam.gserviceaccount.com"]},{"role":"roles/iam.serviceAccountTokenCreator","members":["serviceAccount:firebase-adminsdk-fbsvc@prepassist-v2.iam.gserviceaccount.com"]},{"role":"roles/notebooks.serviceAgent","members":["serviceAccount:service-848376794933@gcp-sa-notebooks.iam.gserviceaccount.com"]},{"role":"roles/owner","members":["user:vamsi.gdv@gmail.com"]},{"role":"roles/run.serviceAgent","members":["serviceAccount:service-848376794933@serverless-robot-prod.iam.gserviceaccount.com"]},{"role":"roles/storage.admin","members":["serviceAccount:firebase-adminsdk-fbsvc@prepassist-v2.iam.gserviceaccount.com"]}]}
+[debug] [2026-06-11T06:24:57.902Z] Checked if tokens are valid: true, expires at: 1781161608073
+[debug] [2026-06-11T06:24:57.902Z] Checked if tokens are valid: true, expires at: 1781161608073
+[debug] [2026-06-11T06:24:57.902Z] >>> [apiv2][query] POST https://cloudresourcemanager.googleapis.com/v1/projects/prepassist-v2:setIamPolicy [none]
+[debug] [2026-06-11T06:24:57.903Z] >>> [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects/prepassist-v2:setIamPolicy {"policy":{"version":1,"etag":"BwZT9GnUXa0=","bindings":[{"role":"roles/cloudaicompanion.serviceAgent","members":["serviceAccount:service-848376794933@gcp-sa-cloudaicompanion.iam.gserviceaccount.com"]},{"role":"roles/cloudbuild.builds.builder","members":["serviceAccount:848376794933@cloudbuild.gserviceaccount.com"]},{"role":"roles/cloudbuild.serviceAgent","members":["serviceAccount:service-848376794933@gcp-sa-cloudbuild.iam.gserviceaccount.com"]},{"role":"roles/compute.instanceGroupManagerServiceAgent","members":["serviceAccount:848376794933@cloudservices.gserviceaccount.com"]},{"role":"roles/compute.serviceAgent","members":["serviceAccount:service-848376794933@compute-system.iam.gserviceaccount.com"]},{"role":"roles/containerregistry.ServiceAgent","members":["serviceAccount:service-848376794933@containerregistry.iam.gserviceaccount.com"]},{"role":"roles/dataflow.serviceAgent","members":["serviceAccount:service-848376794933@dataflow-service-producer-prod.iam.gserviceaccount.com"]},{"role":"roles/editor","members":["serviceAccount:848376794933-compute@developer.gserviceaccount.com","serviceAccount:848376794933@cloudservices.gserviceaccount.com"]},{"role":"roles/firebase.managementServiceAgent","members":["serviceAccount:service-848376794933@gcp-sa-firebase.iam.gserviceaccount.com"]},{"role":"roles/firebase.sdkAdminServiceAgent","members":["serviceAccount:firebase-adminsdk-fbsvc@prepassist-v2.iam.gserviceaccount.com","serviceAccount:firebase-app-hosting-compute@prepassist-v2.iam.gserviceaccount.com"]},{"role":"roles/firebasedatabase.admin","members":["serviceAccount:firebase-adminsdk-fbsvc@prepassist-v2.iam.gserviceaccount.com"]},{"role":"roles/firebasedataconnect.serviceAgent","members":["serviceAccount:service-848376794933@gcp-sa-firebasedataconnect.iam.gserviceaccount.com"]},{"role":"roles/firebasemods.serviceAgent","members":["serviceAccount:service-848376794933@gcp-sa-firebasemods.iam.gserviceaccount.com"]},{"role":"roles/firebaserules.system","members":["serviceAccount:service-848376794933@firebase-rules.iam.gserviceaccount.com"]},{"role":"roles/firebasestorage.serviceAgent","members":["serviceAccount:service-848376794933@gcp-sa-firebasestorage.iam.gserviceaccount.com"]},{"role":"roles/firestore.serviceAgent","members":["serviceAccount:service-848376794933@gcp-sa-firestore.iam.gserviceaccount.com"]},{"role":"roles/iam.serviceAccountTokenCreator","members":["serviceAccount:firebase-adminsdk-fbsvc@prepassist-v2.iam.gserviceaccount.com"]},{"role":"roles/notebooks.serviceAgent","members":["serviceAccount:service-848376794933@gcp-sa-notebooks.iam.gserviceaccount.com"]},{"role":"roles/owner","members":["user:vamsi.gdv@gmail.com"]},{"role":"roles/run.serviceAgent","members":["serviceAccount:service-848376794933@serverless-robot-prod.iam.gserviceaccount.com"]},{"role":"roles/storage.admin","members":["serviceAccount:firebase-adminsdk-fbsvc@prepassist-v2.iam.gserviceaccount.com"]},{"role":"roles/firebaseapphosting.computeRunner","members":["serviceAccount:firebase-app-hosting-compute@prepassist-v2.iam.gserviceaccount.com"]},{"role":"roles/developerconnect.readTokenAccessor","members":["serviceAccount:firebase-app-hosting-compute@prepassist-v2.iam.gserviceaccount.com"]},{"role":"roles/storage.objectViewer","members":["serviceAccount:firebase-app-hosting-compute@prepassist-v2.iam.gserviceaccount.com"]}]},"updateMask":"bindings"}
+[debug] [2026-06-11T06:24:59.071Z] <<< [apiv2][status] POST https://cloudresourcemanager.googleapis.com/v1/projects/prepassist-v2:setIamPolicy 200
+[debug] [2026-06-11T06:24:59.071Z] <<< [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects/prepassist-v2:setIamPolicy {"version":1,"etag":"BwZT9GtiQjs=","bindings":[{"role":"roles/cloudaicompanion.serviceAgent","members":["serviceAccount:service-848376794933@gcp-sa-cloudaicompanion.iam.gserviceaccount.com"]},{"role":"roles/cloudbuild.builds.builder","members":["serviceAccount:848376794933@cloudbuild.gserviceaccount.com"]},{"role":"roles/cloudbuild.serviceAgent","members":["serviceAccount:service-848376794933@gcp-sa-cloudbuild.iam.gserviceaccount.com"]},{"role":"roles/compute.instanceGroupManagerServiceAgent","members":["serviceAccount:848376794933@cloudservices.gserviceaccount.com"]},{"role":"roles/compute.serviceAgent","members":["serviceAccount:service-848376794933@compute-system.iam.gserviceaccount.com"]},{"role":"roles/containerregistry.ServiceAgent","members":["serviceAccount:service-848376794933@containerregistry.iam.gserviceaccount.com"]},{"role":"roles/dataflow.serviceAgent","members":["serviceAccount:service-848376794933@dataflow-service-producer-prod.iam.gserviceaccount.com"]},{"role":"roles/developerconnect.readTokenAccessor","members":["serviceAccount:firebase-app-hosting-compute@prepassist-v2.iam.gserviceaccount.com"]},{"role":"roles/editor","members":["serviceAccount:848376794933-compute@developer.gserviceaccount.com","serviceAccount:848376794933@cloudservices.gserviceaccount.com"]},{"role":"roles/firebase.managementServiceAgent","members":["serviceAccount:service-848376794933@gcp-sa-firebase.iam.gserviceaccount.com"]},{"role":"roles/firebase.sdkAdminServiceAgent","members":["serviceAccount:firebase-adminsdk-fbsvc@prepassist-v2.iam.gserviceaccount.com","serviceAccount:firebase-app-hosting-compute@prepassist-v2.iam.gserviceaccount.com"]},{"role":"roles/firebaseapphosting.computeRunner","members":["serviceAccount:firebase-app-hosting-compute@prepassist-v2.iam.gserviceaccount.com"]},{"role":"roles/firebasedatabase.admin","members":["serviceAccount:firebase-adminsdk-fbsvc@prepassist-v2.iam.gserviceaccount.com"]},{"role":"roles/firebasedataconnect.serviceAgent","members":["serviceAccount:service-848376794933@gcp-sa-firebasedataconnect.iam.gserviceaccount.com"]},{"role":"roles/firebasemods.serviceAgent","members":["serviceAccount:service-848376794933@gcp-sa-firebasemods.iam.gserviceaccount.com"]},{"role":"roles/firebaserules.system","members":["serviceAccount:service-848376794933@firebase-rules.iam.gserviceaccount.com"]},{"role":"roles/firebasestorage.serviceAgent","members":["serviceAccount:service-848376794933@gcp-sa-firebasestorage.iam.gserviceaccount.com"]},{"role":"roles/firestore.serviceAgent","members":["serviceAccount:service-848376794933@gcp-sa-firestore.iam.gserviceaccount.com"]},{"role":"roles/iam.serviceAccountTokenCreator","members":["serviceAccount:firebase-adminsdk-fbsvc@prepassist-v2.iam.gserviceaccount.com"]},{"role":"roles/notebooks.serviceAgent","members":["serviceAccount:service-848376794933@gcp-sa-notebooks.iam.gserviceaccount.com"]},{"role":"roles/owner","members":["user:vamsi.gdv@gmail.com"]},{"role":"roles/run.serviceAgent","members":["serviceAccount:service-848376794933@serverless-robot-prod.iam.gserviceaccount.com"]},{"role":"roles/storage.admin","members":["serviceAccount:firebase-adminsdk-fbsvc@prepassist-v2.iam.gserviceaccount.com"]},{"role":"roles/storage.objectViewer","members":["serviceAccount:firebase-app-hosting-compute@prepassist-v2.iam.gserviceaccount.com"]}]}
+[info] i  This command links your local project to Firebase App Hosting. You will be able to deploy your web app with `firebase deploy` after setup. 
+[debug] [2026-06-11T06:25:16.341Z] Checked if tokens are valid: true, expires at: 1781161608073
+[debug] [2026-06-11T06:25:16.341Z] Checked if tokens are valid: true, expires at: 1781161608073
+[debug] [2026-06-11T06:25:16.341Z] >>> [apiv2][query] GET https://firebaseapphosting.googleapis.com/v1beta/projects/prepassist-v2/locations/-/backends 
+[debug] [2026-06-11T06:25:18.591Z] <<< [apiv2][status] GET https://firebaseapphosting.googleapis.com/v1beta/projects/prepassist-v2/locations/-/backends 200
+[debug] [2026-06-11T06:25:18.591Z] <<< [apiv2][body] GET https://firebaseapphosting.googleapis.com/v1beta/projects/prepassist-v2/locations/-/backends {}
+[debug] [2026-06-11T06:25:34.396Z] ExitPromptError: User force closed the prompt with SIGINT
+    at Interface.sigint (/usr/local/lib/node_modules/firebase-tools/node_modules/@inquirer/core/dist/commonjs/lib/create-prompt.js:101:37)
+    at Interface.emit (node:events:509:20)
+    at [_ttyWrite] [as _ttyWrite] (node:internal/readline/interface:1327:18)
+    at ReadStream.onkeypress (node:internal/readline/interface:284:20)
+    at ReadStream.emit (node:events:521:24)
+    at emitKeys (node:internal/readline/utils:371:14)
+    at emitKeys.next (<anonymous>)
+    at ReadStream.onData (node:internal/readline/emitKeypressEvents:64:36)
+    at ReadStream.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+[error] 
+[error] Error: An unexpected error has occurred.
+[debug] [2026-06-13T05:35:05.837Z] ----------------------------------------------------------------------
+[debug] [2026-06-13T05:35:05.844Z] Command:       /usr/local/bin/node /usr/local/bin/firebase init
+[debug] [2026-06-13T05:35:05.844Z] CLI Version:   15.20.0
+[debug] [2026-06-13T05:35:05.844Z] Platform:      darwin
+[debug] [2026-06-13T05:35:05.844Z] Node Version:  v26.3.0
+[debug] [2026-06-13T05:35:05.844Z] Time:          Sat Jun 13 2026 11:05:05 GMT+0530 (India Standard Time)
+[debug] [2026-06-13T05:35:05.844Z] ----------------------------------------------------------------------
+[debug] 
+[debug] [2026-06-13T05:35:05.845Z] >>> [apiv2][query] GET https://firebase-public.firebaseio.com/cli.json [none]
+[info] 
+     ######## #### ########  ######## ########     ###     ######  ########
+     ##        ##  ##     ## ##       ##     ##  ##   ##  ##       ##
+     ######    ##  ########  ######   ########  #########  ######  ######
+     ##        ##  ##    ##  ##       ##     ## ##     ##       ## ##
+     ##       #### ##     ## ######## ########  ##     ##  ######  ########
+
+You're about to initialize a Firebase project in this directory:
+
+  /Users/praneeth/Desktop/prepassist_App_project
+
+[debug] [2026-06-13T05:35:07.127Z] <<< [apiv2][status] GET https://firebase-public.firebaseio.com/cli.json 200
+[debug] [2026-06-13T05:35:07.128Z] <<< [apiv2][body] GET https://firebase-public.firebaseio.com/cli.json {"cloudBuildErrorAfter":1594252800000,"cloudBuildWarnAfter":1590019200000,"defaultNode10After":1594252800000,"minVersion":"3.0.5","node8DeploysDisabledAfter":1613390400000,"node8RuntimeDisabledAfter":1615809600000,"node8WarnAfter":1600128000000}
+[info] 
+=== Project Setup
+[info] 
+[info] First, let's associate this project directory with a Firebase project.
+[info] You can create multiple project aliases by running firebase use --add, 
+[info] 
+[debug] [2026-06-13T05:35:19.399Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
+[debug] [2026-06-13T05:35:19.399Z] > authorizing via signed-in user (vamsi.gdv@gmail.com)
+[debug] [2026-06-13T05:35:19.400Z] Checked if tokens are valid: false, expires at: 1781161608073
+[debug] [2026-06-13T05:35:19.400Z] Checked if tokens are valid: false, expires at: 1781161608073
+[debug] [2026-06-13T05:35:19.400Z] > refreshing access token with scopes: []
+[debug] [2026-06-13T05:35:19.401Z] >>> [apiv2][query] POST https://www.googleapis.com/oauth2/v3/token [none]
+[debug] [2026-06-13T05:35:19.401Z] >>> [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[debug] [2026-06-13T05:35:20.155Z] <<< [apiv2][status] POST https://www.googleapis.com/oauth2/v3/token 200
+[debug] [2026-06-13T05:35:20.155Z] <<< [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[debug] [2026-06-13T05:35:20.167Z] >>> [apiv2][query] GET https://firebase.googleapis.com/v1beta1/projects pageSize=100
+[debug] [2026-06-13T05:35:25.303Z] <<< [apiv2][status] GET https://firebase.googleapis.com/v1beta1/projects 200
+[debug] [2026-06-13T05:35:25.303Z] <<< [apiv2][body] GET https://firebase.googleapis.com/v1beta1/projects [omitted]

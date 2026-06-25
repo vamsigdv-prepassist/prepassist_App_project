@@ -1,7 +1,7 @@
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { initializeFirestore, getFirestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
-import { getAuth, initializeAuth } from "firebase/auth";
+import { getAuth, initializeAuth, getReactNativePersistence } from "firebase/auth";
 import ReactNativeAsyncStorage from "@react-native-async-storage/async-storage";
 import { Platform } from "react-native";
 
@@ -42,8 +42,7 @@ if (isNewApp) {
     // Web browsers handle persistence automatically natively
     authInstance = getAuth(app);
   } else {
-    // We must require this conditionally, otherwise it crashes the Web bundler
-    const { getReactNativePersistence } = require('firebase/auth');
+    // Statically imported getReactNativePersistence is required for Firebase v10+ in Expo
     authInstance = initializeAuth(app, {
       persistence: getReactNativePersistence(ReactNativeAsyncStorage)
     });

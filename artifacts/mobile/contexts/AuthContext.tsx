@@ -9,6 +9,7 @@ import {
   signInWithCredential,
   sendPasswordResetEmail
 } from "firebase/auth";
+import { doc, onSnapshot } from "firebase/firestore";
 import React, {
   createContext,
   useCallback,
@@ -17,13 +18,21 @@ import React, {
   useState,
 } from "react";
 import * as WebBrowser from "expo-web-browser";
+import { Platform } from "react-native";
+let GoogleSignin: any = null;
+try {
+  GoogleSignin = require("@react-native-google-signin/google-signin").GoogleSignin;
+} catch (e) {
+  // Gracefully fail in Expo Go
+}
 
-import { auth } from "@/lib/firebase";
+import { auth, db } from "@/lib/firebase";
 
 WebBrowser.maybeCompleteAuthSession();
 
 type AuthState = {
   user: User | null;
+  profile: { credits: number; tier: string } | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<string | null>;
   signUp: (email: string, password: string, name: string) => Promise<string | null>;
@@ -36,15 +45,35 @@ const AuthContext = createContext<AuthState | null>(null);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
+  const [profile, setProfile] = useState<{ credits: number; tier: string } | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+    let unsubscribeProfile: (() => void) | undefined;
+
+    const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
-      setLoading(false);
+      if (currentUser) {
+        unsubscribeProfile = onSnapshot(doc(db, "users", currentUser.uid), (docSnap: any) => {
+          setProfile({
+            credits: docSnap.exists() ? docSnap.data().credits ?? 0 : 0,
+            tier: docSnap.exists() ? docSnap.data().tier ?? "free" : "free",
+          });
+          setLoading(false);
+        }, (error: any) => {
+          console.error("Failed to sync profile:", error);
+          setLoading(false);
+        });
+      } else {
+        setProfile(null);
+        setLoading(false);
+      }
     });
 
-    return () => unsubscribe();
+    return () => {
+      unsubscribeAuth();
+      if (unsubscribeProfile) unsubscribeProfile();
+    };
   }, []);
 
   const signIn = useCallback(async (email: string, password: string): Promise<string | null> => {
@@ -80,6 +109,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signOut = useCallback(async () => {
     try {
+      if (Platform.OS !== "web") {
+        try {
+          if (GoogleSignin) {
+            await GoogleSignin.signOut();
+          }
+        } catch (e) {
+          // Ignore error if not signed in with Google
+        }
+      }
       await firebaseSignOut(auth);
     } catch (err) {
       console.error("Sign out error", err);
@@ -99,6 +137,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     <AuthContext.Provider
       value={{
         user,
+        profile,
         loading,
         signIn,
         signUp,

@@ -11,6 +11,7 @@ import {
   Text,
   TouchableOpacity,
   View,
+  Platform,
 } from "react-native";
 import { Stack } from "expo-router";
 import Markdown from "react-native-markdown-display";
@@ -207,6 +208,10 @@ export default function CurrentAffairsScreen() {
   const [selectedDate, setSelectedDate] = useState<string | null>(isoToday());
   const [showDatePicker, setShowDatePicker] = useState(false);
 
+  // Use stable references for DatePicker to prevent native Android resets on re-render
+  const pickerDate = useMemo(() => new Date((selectedDate || isoToday()) + "T12:00:00"), [showDatePicker, selectedDate]);
+  const pickerMaxDate = useMemo(() => new Date(), [showDatePicker]);
+
   const [articles, setArticles] = useState<CurrentAffair[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
@@ -330,45 +335,65 @@ export default function CurrentAffairsScreen() {
         </TouchableOpacity>
       </View>
 
-      <Modal
-        visible={showDatePicker}
-        animationType="slide"
-        transparent={true}
-        onRequestClose={() => setShowDatePicker(false)}
-      >
-        <TouchableOpacity
-          activeOpacity={1}
-          onPress={() => setShowDatePicker(false)}
-          style={[StyleSheet.absoluteFill, { flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "flex-end" }]}
+      {Platform.OS === "ios" ? (
+        <Modal
+          visible={showDatePicker}
+          animationType="slide"
+          transparent={true}
+          onRequestClose={() => setShowDatePicker(false)}
         >
           <TouchableOpacity
             activeOpacity={1}
-            style={{ backgroundColor: colors.card, paddingBottom: 40, borderTopLeftRadius: 20, borderTopRightRadius: 20 }}
+            onPress={() => setShowDatePicker(false)}
+            style={[StyleSheet.absoluteFill, { flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "flex-end" }]}
           >
-            <View style={{ flexDirection: "row", justifyContent: "space-between", padding: 16, borderBottomWidth: 1, borderBottomColor: colors.border }}>
-              <TouchableOpacity onPress={() => { setSelectedDate(null); setShowDatePicker(false); }}>
-                <Text style={{ fontSize: 16, fontFamily: "Inter_600SemiBold", color: colors.primary }}>View Recent</Text>
-              </TouchableOpacity>
-              <Text style={{ fontSize: 16, fontFamily: "Inter_600SemiBold", color: colors.foreground }}>Select Date</Text>
-              <TouchableOpacity onPress={() => setShowDatePicker(false)}>
-                <Text style={{ fontSize: 16, fontFamily: "Inter_600SemiBold", color: colors.primary }}>Done</Text>
-              </TouchableOpacity>
-            </View>
-            <DateTimePicker
-              value={new Date((selectedDate || isoToday()) + "T12:00:00")}
-              mode="date"
-              display="inline"
-              maximumDate={new Date()}
-              onChange={(event, date) => {
-                if (date) {
-                  const tzDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
-                  setSelectedDate(tzDate.toISOString().split("T")[0]!);
-                }
-              }}
-            />
+            <TouchableOpacity
+              activeOpacity={1}
+              style={{ backgroundColor: colors.card, paddingBottom: 40, borderTopLeftRadius: 20, borderTopRightRadius: 20 }}
+            >
+              <View style={{ flexDirection: "row", justifyContent: "space-between", padding: 16, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                <TouchableOpacity onPress={() => { setSelectedDate(null); setShowDatePicker(false); }}>
+                  <Text style={{ fontSize: 16, fontFamily: "Inter_600SemiBold", color: colors.primary }}>View Recent</Text>
+                </TouchableOpacity>
+                <Text style={{ fontSize: 16, fontFamily: "Inter_600SemiBold", color: colors.foreground }}>Select Date</Text>
+                <TouchableOpacity onPress={() => setShowDatePicker(false)}>
+                  <Text style={{ fontSize: 16, fontFamily: "Inter_600SemiBold", color: colors.primary }}>Done</Text>
+                </TouchableOpacity>
+              </View>
+              <View style={{ alignItems: "center", paddingTop: 10 }}>
+                <DateTimePicker
+                  value={pickerDate}
+                  mode="date"
+                  display="inline"
+                  maximumDate={pickerMaxDate}
+                  onChange={(event, date) => {
+                    if (date) {
+                      const tzDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+                      setSelectedDate(tzDate.toISOString().split("T")[0]!);
+                    }
+                  }}
+                />
+              </View>
+            </TouchableOpacity>
           </TouchableOpacity>
-        </TouchableOpacity>
-      </Modal>
+        </Modal>
+      ) : (
+        showDatePicker && (
+          <DateTimePicker
+            value={pickerDate}
+            mode="date"
+            display="default"
+            maximumDate={pickerMaxDate}
+            onChange={(event, date) => {
+              setShowDatePicker(false);
+              if (event.type === "set" && date) {
+                const tzDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+                setSelectedDate(tzDate.toISOString().split("T")[0]!);
+              }
+            }}
+          />
+        )
+      )}
 
       {/* Source Toggles */}
       <View style={{ borderBottomWidth: 1, borderBottomColor: colors.border }}>

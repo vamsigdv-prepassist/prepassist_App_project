@@ -28,6 +28,9 @@ import {
 import { useApp, type QuizAttempt, type VaultDocument } from "@/contexts/AppContext";
 import { useColors } from "@/hooks/useColors";
 import { generateQuiz, pickRandomTopic } from "@/lib/ai";
+import { useAuth } from "@/contexts/AuthContext";
+import { auth, db } from "@/lib/firebase";
+import { doc, updateDoc, increment } from "firebase/firestore";
 
 function WeakAreaTeaser({
   quizzes,
@@ -183,6 +186,7 @@ export default function QuizScreen() {
   const router = useRouter();
   const isWeb = Platform.OS === "web";
   const { quizzes, addQuiz, documents, evaluations } = useApp();
+  const { profile } = useAuth();
 
   const [topic, setTopic] = useState("");
   const [count, setCount] = useState(10);
@@ -195,6 +199,19 @@ export default function QuizScreen() {
 
   const handleGenerateFromDoc = async () => {
     if (!quizDoc?.chunks?.length) return;
+
+    if (!profile || profile.credits < 2) {
+      Alert.alert(
+        "Insufficient AI Credits",
+        "AI Prelims Generation requires 2 AI Credits. Please upgrade to Pro to continue.",
+        [
+          { text: "Cancel", style: "cancel" },
+          { text: "Upgrade", onPress: () => router.push("/pricing" as never) }
+        ]
+      );
+      return;
+    }
+
     setQuizDocGenerating(true);
     try {
       const questions = await generateQuiz(quizDoc.title, quizDocCount, {
@@ -216,6 +233,13 @@ export default function QuizScreen() {
       });
       if (Platform.OS !== "web")
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
+      if (auth.currentUser) {
+        await updateDoc(doc(db, "users", auth.currentUser.uid), {
+          credits: increment(-2)
+        });
+      }
+
       setQuizDoc(null);
       router.push({ pathname: "/quiz-session", params: { id: q.id } } as never);
     } catch {
@@ -230,6 +254,19 @@ export default function QuizScreen() {
     if (!t) {
       t = pickRandomTopic();
     }
+
+    if (!profile || profile.credits < 2) {
+      Alert.alert(
+        "Insufficient AI Credits",
+        "AI Prelims Generation requires 2 AI Credits. Please upgrade to Pro to continue.",
+        [
+          { text: "Cancel", style: "cancel" },
+          { text: "Upgrade", onPress: () => router.push("/pricing" as never) }
+        ]
+      );
+      return;
+    }
+
     setGenerating(true);
     try {
       const questions = await generateQuiz(t, count);
@@ -251,6 +288,13 @@ export default function QuizScreen() {
       });
       if (Platform.OS !== "web")
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
+      if (auth.currentUser) {
+        await updateDoc(doc(db, "users", auth.currentUser.uid), {
+          credits: increment(-2)
+        });
+      }
+
       setTopic("");
       router.push({ pathname: "/quiz-session", params: { id: q.id } } as never);
     } catch (err) {

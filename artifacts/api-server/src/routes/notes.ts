@@ -23,7 +23,7 @@ function stripHtml(html: string): string {
 }
 
 async function structureIntoNotes(rawText: string, source: string): Promise<string> {
-  const capped = rawText.length > 60_000 ? rawText.slice(0, 60_000) : rawText;
+  const capped = rawText.length > 400_000 ? rawText.slice(0, 400_000) : rawText;
   const response = await openai.chat.completions.create({
     model: MODEL,
     max_completion_tokens: 8_000,
@@ -49,7 +49,7 @@ async function structureIntoNotes(rawText: string, source: string): Promise<stri
 
 // ── POST /ai/notes/extract-ocr ───────────────────────────────────────────────
 // Accepts { base64Image: "data:image/...;base64,..." } and returns { text }
-router.post("/ai/notes/extract-ocr", async (req, res) => {
+router.post("/notes/extract-ocr", async (req, res) => {
   try {
     const { base64Image } = req.body ?? {};
     if (typeof base64Image !== "string" || !base64Image) {
@@ -100,7 +100,7 @@ router.post("/ai/notes/extract-ocr", async (req, res) => {
 
 // ── POST /ai/notes/extract-pdf ───────────────────────────────────────────────
 // Accepts { pdfBase64 } and returns { text, title }
-router.post("/ai/notes/extract-pdf", async (req, res) => {
+router.post("/notes/extract-pdf", async (req, res) => {
   try {
     const { pdfBase64 } = req.body ?? {};
     if (typeof pdfBase64 !== "string" || !pdfBase64) {
@@ -137,7 +137,7 @@ router.post("/ai/notes/extract-pdf", async (req, res) => {
 // ── POST /ai/notes/extract-url ───────────────────────────────────────────────
 // Accepts { url } and returns { text, title }
 // Uses Apify website-content-crawler for articles, unpdf for PDF links.
-router.post("/ai/notes/extract-url", async (req, res) => {
+router.post("/notes/extract-url", async (req, res) => {
   try {
     const { url } = req.body ?? {};
     if (typeof url !== "string" || !url.startsWith("http")) {
@@ -186,11 +186,11 @@ router.post("/ai/notes/extract-url", async (req, res) => {
       });
 
       if (!response.ok) {
-        const errData = await response.json().catch(() => ({}));
+        const errData = await response.json().catch(() => ({})) as any;
         throw new Error(errData.error?.message || "Apify Actor Trigger Failed");
       }
 
-      const runData = await response.json();
+      const runData = await response.json() as any;
       const runId = runData.data.id;
       const defaultDatasetId = runData.data.defaultDatasetId;
 
@@ -203,7 +203,7 @@ router.post("/ai/notes/extract-url", async (req, res) => {
         
         const statusRes = await fetch(`https://api.apify.com/v2/acts/apify~website-content-crawler/runs/${runId}?token=${apifyToken}`);
         if (statusRes.ok) {
-          const statusData = await statusRes.json();
+          const statusData = await statusRes.json() as any;
           const status = statusData.data.status;
           if (status === 'SUCCEEDED') {
             finished = true;
@@ -220,7 +220,7 @@ router.post("/ai/notes/extract-url", async (req, res) => {
 
       const datasetRes = await fetch(`https://api.apify.com/v2/datasets/${defaultDatasetId}/items?token=${apifyToken}`);
       if (datasetRes.ok) {
-        items = await datasetRes.json();
+        items = await datasetRes.json() as any[];
       }
 
       if (!items || items.length === 0) {
@@ -251,7 +251,7 @@ router.post("/ai/notes/extract-url", async (req, res) => {
 
 // ── POST /ai/notes/generate ──────────────────────────────────────────────────
 // Accepts { topic } and returns { text, title }
-router.post("/ai/notes/generate", async (req, res) => {
+router.post("/notes/generate", async (req, res) => {
   try {
     const { topic } = req.body ?? {};
     if (typeof topic !== "string" || !topic.trim()) {

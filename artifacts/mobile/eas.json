@@ -15,7 +15,29 @@
       "developmentClient": true,
       "distribution": "internal"
     },
-    "production": {}
+    "production": {
+      "env": {
+        "EXPO_PUBLIC_FIREBASE_API_KEY": "AIzaSyCi5nA-ZtNLgVDM0UIJj7cWrPQhulEPy70",
+        "EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN": "prepassist-v2.firebaseapp.com",
+        "EXPO_PUBLIC_FIREBASE_PROJECT_ID": "prepassist-v2",
+        "EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET": "prepassist-v2.firebasestorage.app",
+        "EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID": "848376794933",
+        "EXPO_PUBLIC_FIREBASE_APP_ID": "1:848376794933:web:6f10da60d65ccdc470067c"
+      }
+    },
+    "production-apk": {
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_FIREBASE_API_KEY": "AIzaSyCi5nA-ZtNLgVDM0UIJj7cWrPQhulEPy70",
+        "EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN": "prepassist-v2.firebaseapp.com",
+        "EXPO_PUBLIC_FIREBASE_PROJECT_ID": "prepassist-v2",
+        "EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET": "prepassist-v2.firebasestorage.app",
+        "EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID": "848376794933",
+        "EXPO_PUBLIC_FIREBASE_APP_ID": "1:848376794933:web:6f10da60d65ccdc470067c"
+      }
+    }
   },
   "submit": {
     "production": {}

@@ -5,6 +5,7 @@ import * as Haptics from "expo-haptics";
 import * as ImagePicker from "expo-image-picker";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import Markdown from "react-native-markdown-display";
+import { PDFDocument } from "pdf-lib";
 import {
   ActivityIndicator,
   Alert,
@@ -37,9 +38,12 @@ import {
   notesExtractPdf,
   notesExtractUrl,
   notesGenerate,
+  bm25Retrieve,
 } from "@/lib/ai";
 import { saveCloudNote as saveCloudVaultNote } from "@/lib/cloud_notes";
-
+import { db, storage } from "@/lib/firebase";
+import { doc, onSnapshot } from "firebase/firestore";
+import { ref, uploadBytesResumable } from "firebase/storage";
 function buildMarkdownStyles(colors: {
   foreground: string;
   mutedForeground: string;
@@ -209,8 +213,8 @@ export function getMarkdownContent(content: string): string {
   // Replace br
   md = md.replace(/<br\s*\/?>/gi, '\n');
 
-  // Remove any other lingering HTML tags
-  md = md.replace(/<[^>]+>/g, '');
+  // Remove lingering HTML tags safely without destroying math symbols
+  md = md.replace(/<\/?(?:div|span|section|article|header|footer|nav|aside|main)[^>]*>/gi, '');
 
   // Decode HTML entities
   md = md.replace(/&nbsp;/g, ' ');
@@ -338,6 +342,10 @@ export default function NotesScreen() {
     setNoteUpdatesMap(map);
   }, [user, trackerNotes]);
 
+  // Note: Local BM25 auto-mapper has been removed. 
+  // Staged notes are now natively vectorized and mapped to Core Notes via the /api/rag/sync backend pipeline 
+  // matching the prepassist-web-v2 architecture precisely.
+
   const [activeSubject, setActiveSubject] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [sortOption, setSortOption] = useState<SortOption>("newest");
@@ -360,6 +368,7 @@ export default function NotesScreen() {
   const [addUrl, setAddUrl] = useState("");
   const [addTopic, setAddTopic] = useState("");
   const [isExtracting, setIsExtracting] = useState(false);
+  const [extractingProgress, setExtractingProgress] = useState("");
   const [showContentPreview, setShowContentPreview] = useState(false);
 
   const [editTitle, setEditTitle] = useState("");
@@ -548,17 +557,7 @@ INSTRUCTIONS:
        let mergedText = data.choices?.[0]?.message?.content || "";
        
        // Robustly strip outer markdown code blocks (e.g. ```markdown ... ```)
-       mergedText = mergedText.trim();
-       if (mergedText.startsWith("```")) {
-           const firstNewline = mergedText.indexOf("\n");
-           if (firstNewline !== -1) {
-               mergedText = mergedText.substring(firstNewline + 1);
-           }
-           if (mergedText.endsWith("```")) {
-               mergedText = mergedText.substring(0, mergedText.length - 3);
-           }
-       }
-       mergedText = mergedText.trim();
+       mergedText = mergedText.replace(/^```[a-z]*\n/i, "").replace(/\n```$/, "").trim();
 
        // Convert markdown -> HTML natively without external libraries
        const finalHtml = getHtmlFromMarkdown(mergedText);
@@ -648,6 +647,7 @@ INSTRUCTIONS:
     const remainingUpdates = pendingUpdatesForModal.filter(u => u.id !== update.id);
     const hasUpdates = remainingUpdates.length > 0;
     
+    const now = Date.now();
     updateTrackerNote(note.id, { content: merged, lastSyncedAt: now, mergedSources: allMergedSources, hasUpdates, updatesList: remainingUpdates });
     
     if (user) {
@@ -784,24 +784,59 @@ INSTRUCTIONS:
     });
     if (res.canceled || !res.assets?.[0]) return;
     const asset = res.assets[0];
+    
+    // 100 MB Limit check natively in mobile app
+    if (asset.size && asset.size > 100 * 1024 * 1024) {
+      Alert.alert("File Too Large", "Please select a document smaller than 100 MB.");
+      return;
+    }
+    
     setIsExtracting(true);
+    setExtractingProgress("");
     try {
-      let pdfBase64: string;
-      if (Platform.OS === "web") {
-        const blob = await fetch(asset.uri).then((r) => r.blob());
-        pdfBase64 = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve((reader.result as string).split(",")[1] ?? "");
-          reader.onerror = reject;
-          reader.readAsDataURL(blob);
-        });
-      } else {
-        pdfBase64 = await FileSystem.readAsStringAsync(asset.uri, {
-          encoding: "base64",
-        });
-      }
-      const { text } = await notesExtractPdf(pdfBase64);
-      if (text) setAddContent(text);
+      if (!user) throw new Error("User not authenticated.");
+      
+      const fetchRes = await fetch(asset.uri);
+      const arrayBuffer = await fetchRes.arrayBuffer();
+
+      setExtractingProgress("Uploading to AI Engine...");
+      
+      const isPdf = asset.name.endsWith(".pdf") || asset.mimeType === "application/pdf";
+      const ext = isPdf ? "pdf" : "docx";
+      const contentType = asset.mimeType || (isPdf ? "application/pdf" : "application/octet-stream");
+      
+      const jobId = `job_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+      const bucket = isPdf ? 'extract-split' : 'extract-single';
+      const storageRef = ref(storage, `${bucket}/${user.uid}/${jobId}.${ext}`);
+      const metadata = { contentType };
+      const uploadTask = uploadBytesResumable(storageRef, arrayBuffer, metadata);
+
+      await new Promise((resolve, reject) => {
+         uploadTask.on('state_changed', null, (error) => reject(error), () => resolve(true));
+      });
+
+      setExtractingProgress("Extracting Content (This might take a minute)...");
+      const extractedText = await new Promise<string>((resolve, reject) => {
+         const unsubscribe = onSnapshot(doc(db, 'pdf_jobs', jobId), (docSnap) => {
+            if (docSnap.exists()) {
+               const jobData = docSnap.data();
+               if (jobData.status === 'COMPLETE') {
+                  unsubscribe();
+                  if (isPdf && jobData.chunks) {
+                     const combined = Object.values(jobData.chunks).join("\n\n---\n\n");
+                     resolve(combined || "AI Extraction complete but no text generated.");
+                  } else {
+                     resolve(jobData.text || "AI Extraction complete but no text generated.");
+                  }
+               } else if (jobData.status === 'FAILED') {
+                  unsubscribe();
+                  reject(new Error(jobData.error || "Failed to parse document"));
+               }
+            }
+         });
+      });
+
+      if (extractedText) setAddContent(extractedText);
       if (!addTitle.trim() && asset.name) {
         setAddTitle(asset.name.replace(/\.(pdf|docx?)$/i, ""));
       }
@@ -809,6 +844,7 @@ INSTRUCTIONS:
       Alert.alert("Extraction failed", e?.message ?? "Could not read the document.");
     } finally {
       setIsExtracting(false);
+      setExtractingProgress("");
     }
   };
 
@@ -1098,6 +1134,7 @@ INSTRUCTIONS:
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
+              style={{ flexGrow: 0, flexShrink: 0 }}
               contentContainerStyle={s.modeTabs}
             >
               {(
@@ -1226,7 +1263,7 @@ INSTRUCTIONS:
                     <View style={s.extractingRow}>
                       <ActivityIndicator color={colors.primary} />
                       <Text style={[s.extractingText, { color: colors.mutedForeground }]}>
-                        Extracting document content…
+                        {extractingProgress || "Extracting document content…"}
                       </Text>
                     </View>
                   ) : (
@@ -1736,10 +1773,17 @@ INSTRUCTIONS:
                     </Text>
                   </View>
                   {update.source ? (
-                    <View style={[s.updateSourceRow, { backgroundColor: "#10B98112" }]}>
-                      <Feather name="database" size={11} color="#10B981" />
-                      <Text style={s.updateSourceText}>{update.source}</Text>
-                    </View>
+                    (() => {
+                      const isVault = update.source.toLowerCase().includes("vault") || update.source.toLowerCase().includes("raw note");
+                      const bgColor = isVault ? "#F3E8FF" : "#10B98112";
+                      const fgColor = isVault ? "#7E22CE" : "#10B981";
+                      return (
+                        <View style={[s.updateSourceRow, { backgroundColor: bgColor }]}>
+                          <Feather name="database" size={11} color={fgColor} />
+                          <Text style={[s.updateSourceText, { color: fgColor }]}>{update.source}</Text>
+                        </View>
+                      );
+                    })()
                   ) : null}
                   <View style={s.updateContentBox}>
                     <Markdown style={buildMarkdownStyles(colors)}>
@@ -1916,9 +1960,16 @@ function NoteCard({
       <View style={[s.noteAccentBar, { backgroundColor: accent }]} />
       <View style={s.noteCardInner}>
         <View style={s.noteCardTop}>
-          <Text style={[s.noteTitle, { color: colors.foreground }]} numberOfLines={1}>
-            {note.title}
-          </Text>
+          <View style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <Text style={[s.noteTitle, { color: colors.foreground, flexShrink: 1 }]} numberOfLines={1}>
+              {note.title}
+            </Text>
+            {note.isStaged && (
+              <View style={[s.tag, { backgroundColor: "#FDF4ED" }]}>
+                <Text style={[s.tagText, { color: "#F97316" }]}>Raw Upload</Text>
+              </View>
+            )}
+          </View>
           <TouchableOpacity onPress={onStar} hitSlop={8}>
             <Feather
               name="star"
@@ -1951,33 +2002,35 @@ function NoteCard({
         </View>
 
         {/* Updates footer row */}
-        <View style={s.noteUpdatesRow}>
-          <View style={s.noteUpdatesBadge}>
-            <View
-              style={[
-                s.noteUpdatesDot,
-                { backgroundColor: hasUpdates ? "#10B981" : colors.mutedForeground + "60" },
-              ]}
-            />
-            <Text style={[s.noteUpdatesBadgeText, { color: updateColor }]}>
-              Updates{hasUpdates ? ` (${pendingUpdatesCount})` : ""}
-            </Text>
-          </View>
-          <TouchableOpacity
-            onPress={hasUpdates ? onSeeUpdates : undefined}
-            disabled={!hasUpdates}
-            hitSlop={6}
-          >
-            <Text
-              style={[
-                s.seeUpdatesText,
-                { color: updateColor, opacity: hasUpdates ? 1 : 0.45 },
-              ]}
+        {!note.isStaged && (
+          <View style={s.noteUpdatesRow}>
+            <View style={s.noteUpdatesBadge}>
+              <View
+                style={[
+                  s.noteUpdatesDot,
+                  { backgroundColor: hasUpdates ? "#10B981" : colors.mutedForeground + "60" },
+                ]}
+              />
+              <Text style={[s.noteUpdatesBadgeText, { color: updateColor }]}>
+                Updates{hasUpdates ? ` (${pendingUpdatesCount})` : ""}
+              </Text>
+            </View>
+            <TouchableOpacity
+              onPress={hasUpdates ? onSeeUpdates : undefined}
+              disabled={!hasUpdates}
+              hitSlop={6}
             >
-              See Updates →
-            </Text>
-          </TouchableOpacity>
-        </View>
+              <Text
+                style={[
+                  s.seeUpdatesText,
+                  { color: updateColor, opacity: hasUpdates ? 1 : 0.45 },
+                ]}
+              >
+                See Updates →
+              </Text>
+            </TouchableOpacity>
+          </View>
+        )}
 
         {note.lastSyncedAt ? (
           <Text style={[s.lastSyncedText, { color: colors.mutedForeground }]}>

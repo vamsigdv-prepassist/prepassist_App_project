@@ -7,6 +7,18 @@ import { useRouter } from "expo-router";
 import { useAuth } from "@/contexts/AuthContext";
 import { useColors } from "@/hooks/useColors";
 import { Card, SectionHeader, Pill } from "@/components/ui";
+import Constants, { ExecutionEnvironment } from 'expo-constants';
+
+let RazorpayCheckout: any = null;
+if (Constants.executionEnvironment !== ExecutionEnvironment.StoreClient) {
+  try {
+    RazorpayCheckout = require('react-native-razorpay').default;
+  } catch (e) {
+    console.warn("Razorpay native module not found");
+  }
+}
+import { auth, db } from "@/lib/firebase";
+import { doc, updateDoc, setDoc, increment } from "firebase/firestore";
 
 const LEDGER_ITEMS = [
   { id: "pdf", title: "PDF to Quiz Parsing", cost: "5 AI Credits", desc: "Per Standard Document Extracted", icon: "file-text" },
@@ -20,11 +32,90 @@ export default function PricingScreen() {
   const colors = useColors();
   const router = useRouter();
 
-  const handleSubscribe = (tier: string) => {
-    Alert.alert("Subscribe", `Proceed to subscribe to ${tier}?`, [
-      { text: "Cancel", style: "cancel" },
-      { text: "Proceed", onPress: () => Alert.alert("Success", "Subscription Flow Initiated") }
-    ]);
+  const handleSubscribe = async (tier: string) => {
+    if (!user) {
+      Alert.alert("Error", "Please login to subscribe.");
+      return;
+    }
+
+    try {
+      // 1. Create Order via Razorpay API
+      const amount = 39900; // 399 INR in paise
+      const response = await fetch("https://api.razorpay.com/v1/orders", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": "Basic cnpwX2xpdmVfVDUwc0NDY3VJR01vQWI6UHRVa2d6QWtwNVdmZnZpRklPNDdneDNi"
+        },
+        body: JSON.stringify({
+          amount: amount,
+          currency: "INR",
+          receipt: "receipt_" + user.uid.slice(0,10) + "_" + Date.now(),
+        })
+      });
+      
+      const orderData = await response.json();
+      
+      if (!orderData.id) {
+        throw new Error("Failed to generate Order ID");
+      }
+
+      // 2. Open Razorpay Checkout
+      if (!RazorpayCheckout) {
+        Alert.alert("Native Build Required", "Razorpay is a native module. Please run 'npx expo run:ios' or 'eas build' to test payments.");
+        return;
+      }
+
+      const options = {
+        description: 'UPSC Pro Access',
+        image: 'https://i.imgur.com/3g7nmJC.png',
+        currency: 'INR',
+        key: 'rzp_live_T50sCCcuIGMoAb',
+        amount: amount,
+        name: 'PrepAssist',
+        order_id: orderData.id,
+        prefill: {
+          email: user.email || '',
+          contact: '',
+          name: user.displayName || 'Aspirant',
+        },
+        theme: { color: colors.primary }
+      };
+
+      RazorpayCheckout.open(options).then(async (data: any) => {
+        // Success
+        // 3. Update User Credits & Tier in Firestore
+        const userRef = doc(db, "users", user.uid);
+        await updateDoc(userRef, {
+          tier: tier,
+          credits: increment(200)
+        });
+
+        // 4. Create Ledger Entry
+        const paymentRef = doc(db, "payments", data.razorpay_payment_id);
+        await setDoc(paymentRef, {
+          userId: user.uid,
+          amount: 399,
+          currency: "INR",
+          planName: tier,
+          status: "SUCCESS",
+          orderId: orderData.id,
+          paymentId: data.razorpay_payment_id,
+          signature: data.razorpay_signature,
+          date: new Date()
+        });
+
+        Alert.alert("Success", "Welcome to UPSC Pro! 200 AI Credits have been added to your account.");
+        router.back();
+
+      }).catch((error: any) => {
+        Alert.alert("Payment Cancelled", "Your payment was not completed.");
+      });
+
+    } catch (e: any) {
+      console.error(e);
+      Alert.alert("Error", "Could not initiate payment. Please try again later.");
+    }
   };
 
   return (

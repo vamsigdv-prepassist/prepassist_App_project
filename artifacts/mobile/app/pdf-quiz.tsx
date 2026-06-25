@@ -1,9 +1,11 @@
 import { Feather } from "@expo/vector-icons";
 import * as DocumentPicker from "expo-document-picker";
-import * as FileSystem from "expo-file-system/legacy";
+import * as FileSystem from "expo-file-system";
+import * as LegacyFileSystem from "expo-file-system/legacy";
 import * as Haptics from "expo-haptics";
 import { useRouter } from "expo-router";
 import React, { useEffect, useRef, useState } from "react";
+import { PDFDocument } from "pdf-lib";
 import {
   ActivityIndicator,
   Alert,
@@ -19,6 +21,10 @@ import { Card, GradientButton, Pill } from "@/components/ui";
 import { useApp } from "@/contexts/AppContext";
 import { useColors } from "@/hooks/useColors";
 import { extractQuizFromPdf } from "@/lib/ai";
+import { useAuth } from "@/contexts/AuthContext";
+import { auth, db, storage } from "@/lib/firebase";
+import { doc, updateDoc, increment, onSnapshot } from "firebase/firestore";
+import { ref, uploadBytesResumable } from "firebase/storage";
 
 const MAX_OPTIONS = [50, 100, 150] as const;
 
@@ -53,6 +59,7 @@ export default function PdfQuizScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { addQuiz } = useApp();
+  const { profile } = useAuth();
   const isWeb = Platform.OS === "web";
 
   const [pdfName, setPdfName] = useState<string | null>(null);
@@ -90,16 +97,9 @@ export default function PdfQuizScreen() {
       if (result.canceled || !result.assets?.length) return;
       const asset = result.assets[0]!;
 
-      let base64 = "";
-      if (Platform.OS === "web") {
-        const res = await fetch(asset.uri);
-        const blob = await res.blob();
-        base64 = await blobToBase64(blob);
-      }
-
       setPdfUri(asset.uri);
       setPdfName(asset.name);
-      setPdfBase64(base64);
+      setPdfBase64(null); // we drop base64 processing here natively
       setPdfSize(asset.size ?? 0);
     } catch {
       Alert.alert("Error", "Could not read the PDF. Please try another file.");
@@ -107,14 +107,83 @@ export default function PdfQuizScreen() {
   };
 
   const handleExtract = async () => {
-    if (!pdfUri && !pdfBase64) return;
+    if (!pdfUri) return;
+
+    if (!profile || profile.credits < 5) {
+      Alert.alert(
+        "Insufficient AI Credits",
+        "This operation requires 5 AI Credits. Please upgrade to Pro to continue.",
+        [
+          { text: "Cancel", style: "cancel" },
+          { text: "Upgrade", onPress: () => router.push("/pricing" as never) }
+        ]
+      );
+      return;
+    }
+
     setProcessing(true);
     try {
-      const questions = await extractQuizFromPdf({
-        uri: pdfUri || "",
-        name: pdfName || "",
-        base64: pdfBase64 || ""
-      }, maxQuestions);
+      const userId = auth.currentUser?.uid;
+      if (!userId) throw new Error("Must be logged in.");
+
+      const jobId = `job_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+      const storageRef = ref(storage, `extract-quiz/${userId}/English/${jobId}.pdf`);
+
+      // 1. Convert URI to blob natively
+      const res = await fetch(pdfUri);
+      const blob = await res.blob();
+
+      // 2. Upload directly to Storage (bypassing Vercel limits natively)
+      const uploadTask = uploadBytesResumable(storageRef, blob);
+      await new Promise((resolve, reject) => {
+        uploadTask.on('state_changed', 
+          null, 
+          (error) => reject(error), 
+          () => resolve(true)
+        );
+      });
+
+      // 3. Listen to Firestore quiz_jobs collection
+      const rawQuestions = await new Promise<any[]>((resolve, reject) => {
+        const unsubscribe = onSnapshot(doc(db, 'quiz_jobs', jobId), (docSnap) => {
+          if (docSnap.exists()) {
+            const jobData = docSnap.data();
+            if (jobData.status === 'COMPLETE') {
+              unsubscribe();
+              resolve(jobData.results || []);
+            } else if (jobData.status === 'FAILED') {
+              unsubscribe();
+              reject(new Error(jobData.error || "Quiz Extraction failed in Cloud Logic."));
+            }
+          }
+        });
+      });
+
+      const questions = rawQuestions.map((q) => {
+        const mappedOptions = Array.isArray(q.options) 
+           ? q.options.map((o: any) => o.text || String(o)) 
+           : [];
+           
+        let correctIndex = 0;
+        if (q.correctOptionId) {
+            const idx = Array.isArray(q.options) ? q.options.findIndex((o: any) => o.id === q.correctOptionId) : -1;
+            if (idx !== -1) {
+                correctIndex = idx;
+            } else if (typeof q.correctOptionId === 'string' && q.correctOptionId.length === 1) {
+                correctIndex = q.correctOptionId.charCodeAt(0) - 97; // 'a' is 0
+            }
+        }
+        
+        return {
+           id: Math.random().toString(36).substring(7),
+           prompt: q.questionText || q.prompt || "Question",
+           options: mappedOptions,
+           correctIndex: Math.max(0, correctIndex),
+           explanation: q.explanation || "No explanation provided.",
+           subtopic: q.subtopic || "Generated"
+        };
+      });
+
       if (!questions.length) {
         Alert.alert(
           "No questions found",
@@ -133,6 +202,13 @@ export default function PdfQuizScreen() {
       });
       if (Platform.OS !== "web")
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
+      if (auth.currentUser) {
+        await updateDoc(doc(db, "users", auth.currentUser.uid), {
+          credits: increment(-5)
+        });
+      }
+
       router.replace({
         pathname: "/quiz-session",
         params: { id: quiz.id },

@@ -30,6 +30,7 @@ function cloudToLocal(n: FirestoreCloudNote): TrackerNote {
     imageUri: n.fileUrl || undefined,
     createdAt: n.createdAt || Date.now(),
     cloudId: n.id,
+    isStaged: n.isStaged || false,
     
     // RAG Metadata
     hasUpdates: n.hasUpdates || false,
@@ -50,8 +51,7 @@ export function useNotesSync() {
       const snap = await getDocs(q);
       const all: FirestoreCloudNote[] = [];
       snap.forEach(d => all.push({ id: d.id, ...d.data() } as FirestoreCloudNote));
-      
-      const trackerNotes = all.filter(n => !n.isStaged);
+      const trackerNotes = all;
       return trackerNotes.map(cloudToLocal).sort((a, b) => b.createdAt - a.createdAt);
     } catch {
       return [];
@@ -109,7 +109,18 @@ export function useNotesSync() {
         
         // Firestore strictly forbids undefined values anywhere in the payload (even inside nested objects/arrays).
         // This recursively removes any undefined properties to prevent silent crashes.
-        const cleanPayload = JSON.parse(JSON.stringify(updatePayload));
+        const removeUndefined = (obj: any): any => {
+          if (Array.isArray(obj)) return obj.map(removeUndefined);
+          if (obj !== null && typeof obj === 'object') {
+            return Object.fromEntries(
+              Object.entries(obj)
+                .filter(([_, v]) => v !== undefined)
+                .map(([k, v]) => [k, removeUndefined(v)])
+            );
+          }
+          return obj;
+        };
+        const cleanPayload = removeUndefined(updatePayload);
         
         if (Object.keys(cleanPayload).length > 0) {
             await updateDoc(doc(db, "cloud_notes", id), cleanPayload);

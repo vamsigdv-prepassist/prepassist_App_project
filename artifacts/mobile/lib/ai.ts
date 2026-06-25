@@ -1,4 +1,7 @@
 import { fetch as expoFetch } from "expo/fetch";
+import { Platform } from "react-native";
+import * as LegacyFileSystem from "expo-file-system/legacy";
+import { auth } from "./firebase";
 
 import type { QuizQuestion } from "@/contexts/AppContext";
 
@@ -10,9 +13,16 @@ function uid() {
 }
 
 async function callApi<T>(path: string, body: unknown): Promise<T> {
+  const user = auth.currentUser;
+  const token = user ? await user.getIdToken() : "";
+
   const res = await fetch(`${API_BASE}${path}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    headers: { 
+      "Content-Type": "application/json", 
+      Accept: "application/json",
+      Authorization: `Bearer ${token}`
+    },
     body: JSON.stringify(body),
   });
   if (!res.ok) {
@@ -109,8 +119,9 @@ export function bm25Retrieve(
     return { chunk, score };
   });
 
-  scored.sort((a, b) => b.score - a.score);
-  return scored.slice(0, k).map((s) => s.chunk);
+  const validScored = scored.filter(s => s.score > 0);
+  validScored.sort((a, b) => b.score - a.score);
+  return validScored.slice(0, k).map((s) => s.chunk);
 }
 
 export async function ragAnswerStream(
@@ -344,8 +355,7 @@ export async function generateQuiz(
   return (results ?? [])
     .filter(q => typeof q.questionText === "string" && Array.isArray(q.options) && q.options.length >= 4)
     .map(q => {
-      // Find the index of the correct option
-      const correctIndex = Math.max(0, q.options.findIndex(o => o.id.toLowerCase() === q.correctOptionId.toLowerCase()));
+      const correctIndex = Math.max(0, q.options.findIndex(o => o.id && q.correctOptionId && String(o.id).toLowerCase() === String(q.correctOptionId).toLowerCase()));
       
       return {
         id: uid(),
@@ -365,34 +375,49 @@ export async function extractQuizFromPdf(
   let results;
   
   if (fileInfo.uri && !fileInfo.uri.startsWith("data:")) {
-    // React Native environment: upload file via FormData
-    const formData = new FormData();
-    formData.append("pdf", {
-      uri: fileInfo.uri,
-      name: fileInfo.name || "upload.pdf",
-      type: "application/pdf",
-    } as any);
-    formData.append("language", "English");
+    const user = auth.currentUser;
+    const token = user ? await user.getIdToken() : "";
 
-    const res = await fetch(`${API_BASE}/quiz/process-pdf`, {
-      method: "POST",
-      body: formData,
-      headers: {
-        Accept: "application/json",
-      },
-    });
+    if (Platform.OS !== "web") {
+      const res = await LegacyFileSystem.uploadAsync(`${API_BASE}/quiz/process-pdf`, fileInfo.uri, {
+        httpMethod: 'POST',
+        uploadType: 1, // FileSystem.FileSystemUploadType.MULTIPART
+        fieldName: 'pdf',
+        mimeType: 'application/pdf',
+        headers: { Authorization: `Bearer ${token}` },
+        parameters: { language: "English" }
+      });
 
-    if (!res.ok) {
-      const err = await res.text().catch(() => "");
-      throw new Error(`API failed (${res.status}): ${err.slice(0, 200)}`);
+      if (res.status >= 400) {
+        const err = res.body || "";
+        throw new Error(`API failed (${res.status}): ${err.slice(0, 200)}`);
+      }
+      results = JSON.parse(res.body).results;
+    } else {
+      // React Native web environment: upload file via FormData
+      const formData = new FormData();
+      formData.append("pdf", {
+        uri: fileInfo.uri,
+        name: fileInfo.name || "upload.pdf",
+        type: "application/pdf",
+      } as any);
+      formData.append("language", "English");
+
+      const res = await fetch(`${API_BASE}/quiz/process-pdf`, {
+        method: "POST",
+        body: formData,
+        headers: { Accept: "application/json", Authorization: `Bearer ${token}` },
+      });
+
+      if (!res.ok) {
+        const err = await res.text().catch(() => "");
+        throw new Error(`API failed (${res.status}): ${err.slice(0, 200)}`);
+      }
+      results = (await res.json()).results;
     }
-    const data = await res.json();
-    results = data.results;
   } else {
-    // Web environment or fallback: send base64
-    const res = await callApi<{
-      results: any[];
-    }>("/quiz/process-pdf", { pdfBase64: fileInfo.base64, language: "English" });
+    // Fallback: send base64
+    const res = await callApi<{ results: any[] }>("/quiz/process-pdf", { pdfBase64: fileInfo.base64, language: "English" });
     results = res.results;
   }
 
@@ -400,7 +425,7 @@ export async function extractQuizFromPdf(
     .filter((q: any) => typeof q.questionText === "string" && Array.isArray(q.options) && q.options.length >= 4)
     .slice(0, maxQuestions)
     .map((q: any) => {
-      const correctIndex = Math.max(0, q.options.findIndex((o: any) => o.id.toLowerCase() === q.correctOptionId.toLowerCase()));
+      const correctIndex = Math.max(0, q.options.findIndex((o: any) => o.id && q.correctOptionId && String(o.id).toLowerCase() === String(q.correctOptionId).toLowerCase()));
       return {
         id: uid(),
         prompt: q.questionText,
@@ -414,6 +439,8 @@ export async function extractQuizFromPdf(
 
 // ── Notes extraction helpers ─────────────────────────────────────────────────
 
+import { uploadNoteStorage } from "./cloud_notes";
+
 export async function notesExtractOcr(base64Image: string): Promise<string> {
   const { text } = await callApi<{ text: string }>("/notes/extract-ocr", {
     base64Image,
@@ -421,8 +448,52 @@ export async function notesExtractOcr(base64Image: string): Promise<string> {
   return text ?? "";
 }
 
-export async function notesExtractPdf(pdfBase64: string): Promise<{ text: string; pages?: number }> {
-  return callApi<{ text: string; pages?: number }>("/notes/extract-pdf", { pdfBase64 });
+export async function notesExtractPdf(fileInfo: { uri: string; name?: string; base64?: string }): Promise<{ text: string; pages?: number }> {
+  if (fileInfo.uri && !fileInfo.uri.startsWith("data:")) {
+    const user = auth.currentUser;
+    if (!user) throw new Error("Authentication required to process large PDF files.");
+
+    try {
+      // 1. Upload to Firebase Bucket to bypass 4.5MB Vercel Limit
+      const publicUrl = await uploadNoteStorage(
+        fileInfo.uri, 
+        user.uid, 
+        fileInfo.name || "document.pdf"
+      );
+      
+      // 2. Append dummy .pdf so prepassist-web-v2's url.toLowerCase().endsWith('.pdf') check passes
+      const finalUrl = publicUrl.includes("?") ? `${publicUrl}&ext=.pdf` : `${publicUrl}?ext=.pdf`;
+
+      // 3. Call the extract-url endpoint instead of extract-pdf
+      const { text } = await callApi<{ text: string }>("/notes/extract-url", {
+        url: finalUrl
+      });
+
+      let extractedText = text;
+      if (extractedText && extractedText.length > 400_000) {
+        extractedText = extractedText.substring(0, 400_000);
+      }
+      return { text: extractedText, pages: 1 };
+
+    } catch (err: any) {
+      throw new Error(`Extraction failed: ${err.message}`);
+    }
+  } else {
+    // Fallback if no valid URI is found, use base64 JSON
+    if (!fileInfo.base64) throw new Error("No PDF data could be extracted.");
+    try {
+      const res = await callApi<{ text: string; pages: number }>("/notes/extract-pdf", {
+        pdfBase64: fileInfo.base64,
+      });
+      let extractedText = res.text;
+      if (extractedText && extractedText.length > 400_000) {
+        extractedText = extractedText.substring(0, 400_000);
+      }
+      return { text: extractedText, pages: res.pages };
+    } catch (err: any) {
+      throw new Error(`Extraction failed: ${err.message}`);
+    }
+  }
 }
 
 export async function notesExtractUrl(url: string): Promise<{ text: string; title?: string }> {

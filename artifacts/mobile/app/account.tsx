@@ -11,27 +11,9 @@ import { useAuth } from "@/contexts/AuthContext";
 export default function AccountScreen() {
   const colors = useColors();
   const router = useRouter();
-  const { signOut } = useAuth();
-  const [profile, setProfile] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    const fetchUser = async () => {
-      const user = auth.currentUser;
-      if (user) {
-        const docSnap = await getDoc(doc(db, "users", user.uid));
-        setProfile({
-          name: user.displayName || "Explorer",
-          email: user.email,
-          id: user.uid,
-          credits: docSnap.exists() ? docSnap.data().credits : 0,
-          tier: docSnap.exists() ? docSnap.data().tier : "free",
-        });
-      }
-      setLoading(false);
-    };
-    fetchUser();
-  }, []);
+  const { signOut, profile, loading: authLoading } = useAuth();
+  
+  const loading = authLoading;
 
   const handleLogout = async () => {
     try {
@@ -52,7 +34,7 @@ export default function AccountScreen() {
   }
 
   return (
-    <View style={[styles.root, { backgroundColor: colors.background }]}>
+    <SafeAreaView style={[styles.root, { backgroundColor: colors.background }]} edges={["top"]}>
       <View style={styles.header}>
         <Text style={[styles.title, { color: colors.foreground }]}>Account Security Array</Text>
         <TouchableOpacity onPress={() => router.back()} style={[styles.closeBtn, { backgroundColor: colors.card }]}>
@@ -65,7 +47,7 @@ export default function AccountScreen() {
            <Text style={[styles.label, { color: colors.mutedForeground }]}>VERIFIED EMAIL VECTOR</Text>
            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 4 }}>
              <Feather name="mail" size={16} color="#10B981" />
-             <Text style={[styles.value, { color: colors.foreground, marginTop: 0 }]}>{profile?.email}</Text>
+             <Text style={[styles.value, { color: colors.foreground, marginTop: 0 }]}>{auth.currentUser?.email}</Text>
            </View>
         </View>
 
@@ -86,7 +68,7 @@ export default function AccountScreen() {
         </TouchableOpacity>
 
       </View>
-    </View>
+    </SafeAreaView>
   );
 }
 

@@ -8,7 +8,7 @@ const MODEL = "gpt-5.4";
 
 const CHUNK_SIZE = 1_500;
 const CHUNK_OVERLAP = 200;
-const MAX_DOC_CHARS = 60_000;
+const MAX_DOC_CHARS = 400_000;
 
 function clampDocText(text: string) {
   if (text.length <= MAX_DOC_CHARS) return text;

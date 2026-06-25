@@ -23,25 +23,25 @@ export default function MoreScreen() {
   );
 
   const ListItem = ({ icon, title, subtitle, route, danger = false, highlight = false }: any) => (
-    <TouchableOpacity 
+    <TouchableOpacity
       style={[
-        styles.listItem, 
-        { 
-          backgroundColor: highlight ? "rgba(79, 70, 229, 0.1)" : colors.card, 
-          borderColor: highlight ? "rgba(79, 70, 229, 0.3)" : colors.border 
+        styles.listItem,
+        {
+          backgroundColor: highlight ? "rgba(79, 70, 229, 0.1)" : colors.card,
+          borderColor: highlight ? "rgba(79, 70, 229, 0.3)" : colors.border
         }
-      ]} 
+      ]}
       onPress={() => handleAction(route)}
     >
       <View style={[
-        styles.iconWrap, 
+        styles.iconWrap,
         { backgroundColor: danger ? "rgba(239,68,68,0.1)" : highlight ? "rgba(79, 70, 229, 0.2)" : colors.background }
       ]}>
         <Feather name={icon} size={20} color={danger ? "#EF4444" : highlight ? "#4F46E5" : colors.primary} />
       </View>
       <View style={styles.listTextWrap}>
         <Text style={[
-          styles.listTitle, 
+          styles.listTitle,
           { color: danger ? "#EF4444" : highlight ? "#4F46E5" : colors.foreground }
         ]}>{title}</Text>
         {subtitle && <Text style={[styles.listSubtitle, { color: colors.mutedForeground }]}>{subtitle}</Text>}
@@ -57,7 +57,7 @@ export default function MoreScreen() {
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        
+
         {/* Profile Card */}
         <View style={[styles.profileCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <View style={styles.avatarWrap}>
@@ -80,7 +80,7 @@ export default function MoreScreen() {
         <SectionHeader title="ACCOUNT & IDENTITY" />
         <ListItem icon="user" title="Account Details" subtitle="Manage your identity endpoints" route="/account" />
         <ListItem icon="map-pin" title="Profile Coordinates" subtitle="Location and tracking vectors" route="/profile" />
-        
+
         <SectionHeader title="BILLING & UPGRADES" />
         <ListItem icon="credit-card" title="Payments Made" subtitle="View transaction ledger" route="/payments" />
         <ListItem icon="zap" title="Upgrade Native Tier" subtitle="Unlock ultimate device capabilities" route="/upgrade" highlight={true} />
@@ -90,12 +90,16 @@ export default function MoreScreen() {
         <ListItem icon="activity" title="Core API Telemetry" subtitle="View real-time engine pings" route="/telemetry" />
         <ListItem icon="radio" title="System Transmissions" subtitle="App notification logs" route="/transmissions" />
 
+        <SectionHeader title="LEGAL" />
+        <ListItem icon="shield" title="Privacy Policy" subtitle="Data & security transparency" route="/privacy-policy" />
+        <ListItem icon="file-text" title="Terms & Conditions" subtitle="Platform usage rules" route="/terms-and-conditions" />
+
         <View style={styles.footerInfo}>
           <Feather name="shield" size={24} color={colors.mutedForeground} style={{ opacity: 0.3, marginBottom: 8 }} />
           <Text style={[styles.versionText, { color: colors.mutedForeground }]}>Version 1.0.0 (Build 42)</Text>
-          <Text style={[styles.versionText, { color: colors.mutedForeground }]}>Powered by Matrix Engine</Text>
+          <Text style={[styles.versionText, { color: colors.mutedForeground }]}>Powered by PrepAssist</Text>
         </View>
-        
+
       </ScrollView>
     </SafeAreaView>
   );

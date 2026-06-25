@@ -1,0 +1,71 @@
+{
+  "project_info": {
+    "project_number": "848376794933",
+    "firebase_url": "https://prepassist-v2-default-rtdb.asia-southeast1.firebasedatabase.app",
+    "project_id": "prepassist-v2",
+    "storage_bucket": "prepassist-v2.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:848376794933:android:67c80cae5d07a85f70067c",
+        "android_client_info": {
+          "package_name": "com.prepassist.mobile"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "848376794933-hkdp1emokfj79dq541abu558u1tmnolb.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.prepassist.mobile",
+            "certificate_hash": "e0d5318ca8e39e36918dd28ebe36af086c194693"
+          }
+        },
+        {
+          "client_id": "848376794933-l22mr9bu1hpk2nj7f9gaom733j6mcs1n.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.prepassist.mobile",
+            "certificate_hash": "5e8f16062ea3cd2c4a0d547876baa6f38cabf625"
+          }
+        },
+        {
+          "client_id": "848376794933-ncphhc4snn9i40ktv5plkah46eqfejk2.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.prepassist.mobile",
+            "certificate_hash": "56c75c32249ecbfc0364d9dc4475eca2f90ca8de"
+          }
+        },
+        {
+          "client_id": "848376794933-kufnkpjn5orb5p3sinl4l1s8snflkr0v.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBGg3_T5us3k7JT1re0GrM2Brna3Rd5P6U"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "848376794933-kufnkpjn5orb5p3sinl4l1s8snflkr0v.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "848376794933-mi9qaheeafnn35c1rcb8dbl91fatcha1.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.prepassist.mobile"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

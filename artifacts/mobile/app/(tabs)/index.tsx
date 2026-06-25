@@ -16,6 +16,8 @@ import FlashcardCarousel from "@/components/FlashcardCarousel";
 import { Card, Pill, ProgressBar, SectionHeader } from "@/components/ui";
 import { useApp } from "@/contexts/AppContext";
 import { useColors } from "@/hooks/useColors";
+import { auth, db } from "@/lib/firebase";
+import { doc, onSnapshot } from "firebase/firestore";
 
 
 const QUICK_ACTIONS = [
@@ -108,37 +110,49 @@ export default function HomeScreen() {
   const isWeb = Platform.OS === "web";
   const { userName, targetExam, streakDays, documents, evaluations, quizzes, weeklyStudyData } =
     useApp();
+  const [credits, setCredits] = React.useState<number>(0);
+
+  React.useEffect(() => {
+    const user = auth.currentUser;
+    if (!user) return;
+    const unsub = onSnapshot(doc(db, "users", user.uid), (docSnap) => {
+      if (docSnap.exists()) {
+        setCredits(docSnap.data().credits || 0);
+      }
+    });
+    return () => unsub();
+  }, []);
 
   const stats = useMemo(() => {
-    const completedQuizzes = quizzes.filter((q) => q.completed);
+    const completedQuizzes = (quizzes || []).filter((q) => q.completed);
     const accuracySum = completedQuizzes.reduce(
-      (s, q) => s + (q.questions.length ? q.score / q.questions.length : 0),
+      (s, q) => s + (q.questions?.length ? q.score / q.questions.length : 0),
       0,
     );
     const accuracy = completedQuizzes.length
       ? Math.round((accuracySum / completedQuizzes.length) * 100)
       : 0;
-    const avgEval = evaluations.length
+    const avgEval = (evaluations || []).length
       ? Math.round(
-          (evaluations.reduce(
-            (s, e) => s + (e.totalScore / e.maxScore) * 100,
+          ((evaluations || []).reduce(
+            (s, e) => s + (e.totalScore / (e.maxScore || 1)) * 100,
             0,
           ) /
-            evaluations.length) *
+            (evaluations || []).length) *
             10,
         ) / 10
       : 0;
       
     // Create an interesting "Neural Sync" score based on accuracy, eval, and streak
     const baseSync = 45;
-    const dynamicSync = Math.min(100, Math.round(baseSync + (accuracy * 0.3) + (avgEval * 0.3) + streakDays));
+    const dynamicSync = Math.min(100, Math.round(baseSync + (accuracy * 0.3) + (avgEval * 0.3) + (streakDays || 0)));
     
     // Extract focus year or objective
-    const yearMatch = targetExam.match(/\d{4}/);
+    const yearMatch = (targetExam || "").match(/\d{4}/);
     const focusArea = yearMatch ? yearMatch[0] : "Prelims";
     
     // Total AI missions completed
-    const totalMissions = evaluations.length + completedQuizzes.length;
+    const totalMissions = (evaluations || []).length + completedQuizzes.length;
 
     return {
       neuralSync: `${dynamicSync}%`,
@@ -159,22 +173,22 @@ export default function HomeScreen() {
       time: number;
     };
     const items: Item[] = [];
-    evaluations.slice(0, 5).forEach((e) => {
+    (evaluations || []).slice(0, 5).forEach((e) => {
       items.push({
         id: "eval-" + e.id,
         title: `${e.paper} · ${e.totalScore}/${e.maxScore}`,
-        subtitle: e.question.slice(0, 70),
+        subtitle: (e.question || "").slice(0, 70),
         icon: "edit-3",
         color: "#06B6D4",
         time: e.createdAt,
       });
     });
-    quizzes.slice(0, 5).forEach((q) => {
+    (quizzes || []).slice(0, 5).forEach((q) => {
       if (!q.completed) return;
       items.push({
         id: "quiz-" + q.id,
-        title: `${q.topic} · ${q.score}/${q.questions.length}`,
-        subtitle: `Prelims drill · ${Math.round(q.durationSec)}s`,
+        title: `${q.topic} · ${q.score}/${(q.questions || []).length}`,
+        subtitle: `Prelims drill · ${Math.round(q.durationSec || 0)}s`,
         icon: "zap",
         color: "#F59E0B",
         time: q.createdAt,
@@ -193,7 +207,7 @@ export default function HomeScreen() {
       d.setDate(d.getDate() - i);
       const dateStr = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, '0') + "-" + String(d.getDate()).padStart(2, '0');
       
-      const found = weeklyStudyData?.find(w => w.dateStr === dateStr);
+      const found = (weeklyStudyData || []).find(w => w.dateStr === dateStr);
       result.push({
         label: days[d.getDay()],
         value: found ? found.studyMinutes : 0,
@@ -264,7 +278,7 @@ export default function HomeScreen() {
                   fontSize: 13,
                 }}
               >
-                {streakDays}d
+                {credits}
               </Text>
             </View>
 
@@ -322,6 +336,9 @@ export default function HomeScreen() {
           </LinearGradient>
         </View>
 
+        {/* Flashcard carousel */}
+        <FlashcardCarousel />
+
         {/* Quick actions */}
         <View style={{ paddingHorizontal: 20, marginTop: 24 }}>
           <SectionHeader title="Capabilities" />
@@ -378,9 +395,6 @@ export default function HomeScreen() {
             ))}
           </View>
         </View>
-
-        {/* Flashcard carousel */}
-        <FlashcardCarousel />
 
         {/* Weekly chart */}
         <View style={{ paddingHorizontal: 20, marginTop: 28 }}>
