@@ -43,6 +43,9 @@ export default function UpgradeScreen() {
     } else if (tier === "Ultimate") {
       amountPaise = 69900;
       creditsToAdd = 400;
+    } else if (tier === "Cloud Vault") {
+      amountPaise = 19900;
+      creditsToAdd = 0;
     } else if (tier === "Top Up 1") {
       amountPaise = 100;
       creditsToAdd = 1;
@@ -94,26 +97,33 @@ export default function UpgradeScreen() {
       RazorpayCheckout.open(options).then(async (data: any) => {
         const userRef = doc(db, "users", user.uid);
         const updatePayload: any = { credits: increment(creditsToAdd) };
-        if (!tier.includes("Top Up")) {
+        if (tier === "Cloud Vault") {
+          updatePayload.hasCloudNotes = true;
+        } else if (!tier.includes("Top Up")) {
           updatePayload.tier = tier;
         }
         
-        await updateDoc(userRef, updatePayload);
+        await setDoc(userRef, updatePayload, { merge: true });
 
         const paymentRef = doc(db, "payments", data.razorpay_payment_id);
+        const finalAmount = amountPaise / 100;
         await setDoc(paymentRef, {
           userId: user.uid,
-          amount: amountPaise / 100,
+          amount: finalAmount,
           currency: "INR",
           planName: tier,
           status: "SUCCESS",
           orderId: orderData.id,
           paymentId: data.razorpay_payment_id,
           signature: data.razorpay_signature,
-          date: new Date()
+          date: new Date(),
+          credits: creditsToAdd
         });
 
-        router.push("/payments");
+        router.replace({
+          pathname: "/payment-success",
+          params: { plan: tier, amount: finalAmount.toString(), credits: creditsToAdd.toString() }
+        });
       }).catch((error: any) => {
         console.log("Payment cancelled", error);
       });
@@ -192,6 +202,29 @@ export default function UpgradeScreen() {
 
            <TouchableOpacity style={[styles.btn, { backgroundColor: colors.foreground }]} onPress={() => handleUpgrade("Ultimate")}>
              <Text style={[styles.btnText, { color: colors.background }]}>Select Ultimate</Text>
+           </TouchableOpacity>
+        </View>
+
+        {/* Cloud Vault Storage Expansion */}
+        <View style={[styles.planCard, { backgroundColor: "rgba(14, 165, 233, 0.05)", borderColor: "rgba(14, 165, 233, 0.3)", marginTop: 24 }]}>
+           <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 }}>
+             <View style={{ paddingHorizontal: 10, paddingVertical: 4, backgroundColor: "rgba(14, 165, 233, 0.1)", borderRadius: 12, borderWidth: 1, borderColor: "rgba(14, 165, 233, 0.2)" }}>
+               <Text style={{ color: "#0ea5e9", fontSize: 10, fontFamily: "Inter_800ExtraBold", textTransform: "uppercase", letterSpacing: 1 }}>Storage Expansion</Text>
+             </View>
+           </View>
+           <Text style={[styles.planName, { color: colors.foreground }]}>PrepAssist Cloud Vault</Text>
+           <Text style={[styles.planDesc, { color: colors.mutedForeground }]}>Unlock the full power of native Document Tracking. Bypass the Free Tier restrictions and securely upload up to 1 GB Memory Size of encrypted PDFs directly into your Firebase Cloud Storage container.</Text>
+           <Text style={[styles.planPrice, { color: colors.foreground }]}>₹199<Text style={{ fontSize: 14, color: colors.mutedForeground }}> /mo</Text></Text>
+           
+           <View style={styles.featuresList}>
+             <FeatureItem text="1 GB Maximum Configurable Size" active={true} />
+             <FeatureItem text="Permanent File Lifetime" active={true} />
+             <FeatureItem text="Zero Data Archiving" active={true} />
+             <FeatureItem text="Memory-Weight Analytics" active={true} />
+           </View>
+
+           <TouchableOpacity style={[styles.btn, { backgroundColor: "#0ea5e9" }]} onPress={() => handleUpgrade("Cloud Vault")}>
+             <Text style={styles.btnText}>Unlock Cloud Vault</Text>
            </TouchableOpacity>
         </View>
 

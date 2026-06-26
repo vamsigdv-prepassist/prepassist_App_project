@@ -9,7 +9,7 @@ import {
   signInWithCredential,
   sendPasswordResetEmail
 } from "firebase/auth";
-import { doc, onSnapshot } from "firebase/firestore";
+import { doc, onSnapshot, setDoc } from "firebase/firestore";
 import React, {
   createContext,
   useCallback,
@@ -90,6 +90,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       if (userCredential.user) {
         await updateProfile(userCredential.user, { displayName: name });
+        
+        // CRITICAL FIX: Initialize the Firestore Profile immediately upon mobile signup
+        // Matches the Web App's initialization payload
+        const userRef = doc(db, "users", userCredential.user.uid);
+        await setDoc(userRef, {
+           userId: userCredential.user.uid,
+           email: userCredential.user.email,
+           fullName: name,
+           credits: 10,
+           tier: "free",
+           role: "student",
+           createdAt: new Date().toISOString()
+        });
       }
       return null;
     } catch (err: any) {
