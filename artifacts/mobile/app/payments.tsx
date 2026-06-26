@@ -121,7 +121,7 @@ export default function PaymentsScreen() {
           </View>
         ) : (
           payments.map((p, idx) => {
-            const dateObj = p.date ? (p.date.toDate ? p.date.toDate() : new Date(p.date)) : null;
+            const dateObj = p._normalizedDate;
             const isSuccess = p.status === "SUCCESS";
             
             let displayCredits = "X";

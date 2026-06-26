@@ -37,7 +37,10 @@ export default function UpgradeScreen() {
     let amountPaise = 0;
     let creditsToAdd = 0;
 
-    if (tier === "UPSC Pro") {
+    if (tier === "Starter") {
+      amountPaise = 100;
+      creditsToAdd = 20;
+    } else if (tier === "UPSC Pro") {
       amountPaise = 39900;
       creditsToAdd = 200;
     } else if (tier === "Ultimate") {
@@ -100,7 +103,10 @@ export default function UpgradeScreen() {
         if (tier === "Cloud Vault") {
           updatePayload.hasCloudNotes = true;
         } else if (!tier.includes("Top Up")) {
-          updatePayload.tier = tier;
+          if (tier === "UPSC Pro") updatePayload.tier = "pro";
+          else if (tier === "Ultimate") updatePayload.tier = "ultimate";
+          else if (tier === "Starter") updatePayload.tier = "starter";
+          else updatePayload.tier = tier.toLowerCase();
         }
         
         await setDoc(userRef, updatePayload, { merge: true });
@@ -166,8 +172,25 @@ export default function UpgradeScreen() {
            </Text>
         </View>
 
+        {/* Starter Tier */}
+        <View style={[styles.planCard, { backgroundColor: colors.card, borderColor: "#0ea5e9", shadowColor: "#0ea5e9", shadowOpacity: 0.1, shadowRadius: 10 }]}>
+           <Text style={[styles.planName, { color: colors.foreground }]}>Starter</Text>
+           <Text style={[styles.planDesc, { color: "#0ea5e9" }]}>A trial expansion array to test the primary capabilities live.</Text>
+           <Text style={[styles.planPrice, { color: colors.foreground }]}>₹1<Text style={{ fontSize: 14, color: colors.mutedForeground }}> /mo</Text></Text>
+           
+           <View style={styles.featuresList}>
+             <FeatureItem text="20 AI Credits natively" />
+             <FeatureItem text="Trial Pipeline Execution" />
+             <FeatureItem text="Entry-level Analytics" />
+           </View>
+
+           <TouchableOpacity style={[styles.btn, { backgroundColor: "#0ea5e9" }]} onPress={() => handleUpgrade("Starter")}>
+             <Text style={styles.btnText}>Unlock Starter</Text>
+           </TouchableOpacity>
+        </View>
+
         {/* Pro Tier */}
-        <View style={[styles.planCard, { backgroundColor: colors.card, borderColor: "#6366F1", shadowColor: "#6366F1", shadowOpacity: 0.2, shadowRadius: 20 }]}>
+        <View style={[styles.planCard, { backgroundColor: colors.card, borderColor: "#6366F1", shadowColor: "#6366F1", shadowOpacity: 0.2, shadowRadius: 20, marginTop: 24 }]}>
            <View style={styles.popularBadge}>
              <Text style={styles.popularText}>MOST POPULAR</Text>
            </View>

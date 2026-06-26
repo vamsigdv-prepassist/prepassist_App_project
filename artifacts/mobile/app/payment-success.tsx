@@ -20,6 +20,13 @@ export default function PaymentSuccessScreen() {
   const credits = params.credits || "0";
 
   const getBenefits = (planName: string) => {
+    if (planName === "Starter") {
+      return [
+        "20 AI Credits natively injected",
+        "Trial Pipeline Execution",
+        "Entry-level Analytics",
+      ];
+    }
     if (planName === "UPSC Pro") {
       return [
         "200 AI Credits natively injected",
